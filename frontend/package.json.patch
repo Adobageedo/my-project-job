@@ -1,0 +1,10 @@
+# Ajouter ces lignes dans package.json
+
+{
+  "scripts": {
+    "test:services": "tsx test-services.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}
