@@ -1,0 +1,5 @@
+# Procfile pour Railway
+# Railway détectera automatiquement ce fichier
+
+web: npm run start:prod
+release: npx prisma migrate deploy

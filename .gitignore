@@ -1,0 +1,112 @@
+# -------------------------
+# OS SYSTEM FILES
+# -------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+Thumbs.db
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -------------------------
+# PYTHON
+# -------------------------
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+pip-wheel-metadata/
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+ENV/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# -------------------------
+# NODE / JAVASCRIPT
+# -------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.cache/
+.next/
+out/
+
+# -------------------------
+# ENV / SECRETS
+# -------------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.secret
+secrets.json
+
+# -------------------------
+# EDITORS / IDEs
+# -------------------------
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# JetBrains
+.idea/
+*.iml
+
+# -------------------------
+# DATABASE / BACKUPS
+# -------------------------
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
+
+# -------------------------
+# LOGS
+# -------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# -------------------------
+# OTHER COMMON
+# -------------------------
+*.tmp
+*.cache
+tmp/
+coverage/
+coverage.xml
+pytestcache/
+*.pid
