@@ -7,9 +7,10 @@ import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import JobCard from '@/components/job/JobCard';
 import { ApplicationDetailSheet } from '@/components/job/ApplicationDetailSheet';
-import { Application, JobOffer, Candidate } from '@/types';
-import { getCurrentCandidate, getCandidateApplications, getSavedCVs } from '@/services/candidateService';
+import { JobOffer, Candidate } from '@/types';
+import { getCurrentCandidate, getSavedCVs } from '@/services/candidateService';
 import { getRecentOffers } from '@/services/offerService';
+import { getCandidateApplications, FrontendApplication } from '@/services/applicationService';
 import {
   Briefcase,
   FileText,
@@ -32,9 +33,9 @@ import { fr } from 'date-fns/locale';
 
 export default function CandidateDashboard() {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
-  const [recentApplications, setRecentApplications] = useState<Application[]>([]);
+  const [recentApplications, setRecentApplications] = useState<FrontendApplication[]>([]);
   const [recommendedOffers, setRecommendedOffers] = useState<JobOffer[]>([]);
-  const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
+  const [selectedApplication, setSelectedApplication] = useState<FrontendApplication | null>(null);
   const [showApplicationDetail, setShowApplicationDetail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,16 +101,21 @@ export default function CandidateDashboard() {
   const stats = {
     totalApplications: recentApplications.length,
     pending: recentApplications.filter(a => a.status === 'pending').length,
-    reviewing: recentApplications.filter(a => a.status === 'reviewing').length,
+    reviewing: recentApplications.filter(a =>
+      a.status === 'reviewing' || a.status === 'in_progress' || a.status === 'interview'
+    ).length,
     accepted: recentApplications.filter(a => a.status === 'accepted').length,
     rejected: recentApplications.filter(a => a.status === 'rejected').length,
   };
 
-  const statusConfig = {
+  const statusConfig: Record<string, { label: string; color: string; bg: string; icon: any }> = {
     pending: { label: 'En attente', color: 'text-amber-600', bg: 'bg-amber-100', icon: Clock },
-    reviewing: { label: 'En examen', color: 'text-blue-600', bg: 'bg-blue-100', icon: AlertCircle },
+    in_progress: { label: 'En cours', color: 'text-blue-600', bg: 'bg-blue-100', icon: AlertCircle },
+    interview: { label: 'Entretien', color: 'text-purple-600', bg: 'bg-purple-100', icon: Clock },
     accepted: { label: 'Acceptée', color: 'text-green-600', bg: 'bg-green-100', icon: CheckCircle },
     rejected: { label: 'Refusée', color: 'text-red-600', bg: 'bg-red-100', icon: XCircle },
+    withdrawn: { label: 'Retirée', color: 'text-gray-600', bg: 'bg-gray-100', icon: XCircle },
+    reviewing: { label: 'En cours', color: 'text-blue-600', bg: 'bg-blue-100', icon: AlertCircle }, // legacy alias
   };
 
   if (loading) {
@@ -162,7 +168,7 @@ export default function CandidateDashboard() {
                   Bonjour, {candidate.firstName} 👋
                 </h1>
                 <p className="text-blue-100 text-lg">
-                  {candidate.school} • {candidate.studyLevel} • {candidate.specialization}
+                  {[candidate.school, candidate.studyLevel, candidate.specialization].filter(Boolean).join(' • ') || 'Complétez votre profil'}
                 </p>
               </div>
               <div className="hidden md:flex items-center gap-4">
@@ -244,7 +250,9 @@ export default function CandidateDashboard() {
 
                 <div className="divide-y divide-gray-100">
                   {recentApplications.map((app) => {
-                    const StatusIcon = statusConfig[app.status].icon;
+                    const config = statusConfig[app.status] || statusConfig.pending;
+                    const StatusIcon = config.icon;
+                    const offer = app.offer;
                     return (
                       <div
                         key={app.id}
@@ -256,12 +264,16 @@ export default function CandidateDashboard() {
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex-1">
-                            <h3 className="font-medium text-gray-900">{app.offer.title}</h3>
-                            <p className="text-sm text-gray-600">{app.offer.company.name}</p>
+                            <h3 className="font-medium text-gray-900">
+                              {offer?.title || 'Offre non disponible'}
+                            </h3>
+                            <p className="text-sm text-gray-600">
+                              {offer?.company?.name || 'Entreprise'}
+                            </p>
                             <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                               <span className="flex items-center gap-1">
                                 <MapPin className="h-3 w-3" />
-                                {app.offer.location}
+                                {offer?.location || 'Non spécifié'}
                               </span>
                               <span className="flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
@@ -272,10 +284,10 @@ export default function CandidateDashboard() {
                           <div className="flex items-center gap-3">
                             <span className={`
                               inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium
-                              ${statusConfig[app.status].bg} ${statusConfig[app.status].color}
+                              ${config.bg} ${config.color}
                             `}>
                               <StatusIcon className="h-3 w-3" />
-                              {statusConfig[app.status].label}
+                              {config.label}
                             </span>
                             <Eye className="h-4 w-4 text-gray-400" />
                           </div>

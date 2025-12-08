@@ -21,6 +21,16 @@ import { uploadCV } from '@/services';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
+// Helper function to format dates
+const formatDate = (date: string | Date | undefined | null): string => {
+  if (!date) return '';
+  try {
+    return format(new Date(date), 'dd MMM yyyy', { locale: fr });
+  } catch {
+    return '';
+  }
+};
+
 interface CVManagerProps {
   candidateId: string;
   savedCVs: SavedCV[];

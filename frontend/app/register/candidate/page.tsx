@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
-import { Mail, Lock, Eye, EyeOff, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, Loader2, Shield } from 'lucide-react';
 import { registerCandidate } from '@/services/authService';
+import Captcha, { CAPTCHA_SITE_KEYS, CAPTCHA_CONFIG } from '@/components/security/Captcha';
+import { checkPersistentRateLimit, formatWaitTime, clearPersistentRateLimit } from '@/lib/rateLimit';
 
 interface PasswordValidation {
   minLength: boolean;
@@ -25,8 +27,11 @@ export default function RegisterCandidatePage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [emailError, setEmailError] = useState('');
+  const [rateLimitError, setRateLimitError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const captchaRef = useRef<HTMLDivElement>(null);
 
   // Validation du mot de passe
   const validatePassword = (pwd: string): PasswordValidation => {
@@ -43,10 +48,38 @@ export default function RegisterCandidatePage() {
   const passwordValidation = validatePassword(password);
   const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
 
+  const handleCaptchaVerify = (token: string) => {
+    setCaptchaToken(token);
+    setRateLimitError('');
+  };
+
+  const handleCaptchaExpire = () => {
+    setCaptchaToken(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setEmailError('');
+    setRateLimitError('');
     
+    // Vérification du rate limit côté client
+    const rateCheck = checkPersistentRateLimit('register', {
+      maxAttempts: 5,
+      windowMs: 60 * 60 * 1000, // 1 hour
+      lockoutMs: 30 * 60 * 1000, // 30 minutes lockout
+    });
+
+    if (!rateCheck.allowed) {
+      setRateLimitError(`Trop de tentatives. Réessayez dans ${formatWaitTime(rateCheck.waitMs)}.`);
+      return;
+    }
+    
+    // Vérification du captcha (si activé)
+    if (CAPTCHA_CONFIG.enabled && !captchaToken) {
+      setRateLimitError('Veuillez compléter la vérification de sécurité.');
+      return;
+    }
+
     // Vérification finale du mot de passe
     if (!passwordValidation.isStrong) {
       return;
@@ -59,8 +92,11 @@ export default function RegisterCandidatePage() {
     setIsLoading(true);
 
     try {
-      // Utiliser le service d'authentification
-      await registerCandidate(email, password);
+      // Utiliser le service d'authentification avec le token captcha
+      await registerCandidate(email, password, { captchaToken });
+
+      // Inscription réussie - nettoyer le rate limit
+      clearPersistentRateLimit('register');
 
       // Redirection vers la page de confirmation
       router.push('/register/candidate/confirm-email');
@@ -69,9 +105,13 @@ export default function RegisterCandidatePage() {
       const errorMessage = (error as Error).message || '';
       if (errorMessage.includes('already registered') || errorMessage.includes('existe déjà')) {
         setEmailError('Un compte existe déjà avec cet email');
+      } else if (errorMessage.includes('rate limit') || errorMessage.includes('too many')) {
+        setRateLimitError('Trop de tentatives. Veuillez patienter avant de réessayer.');
       } else {
         setEmailError(errorMessage || 'Une erreur est survenue. Veuillez réessayer.');
       }
+      // Reset captcha on error
+      setCaptchaToken(null);
       setIsLoading(false);
     }
   };
@@ -249,23 +289,62 @@ export default function RegisterCandidatePage() {
                 />
                 <label htmlFor="terms" className="ml-2 text-sm text-gray-600">
                   J'accepte les{' '}
-                  <a href="#" className="text-blue-600 hover:text-blue-700">
+                  <Link href="/legal/cgu" className="text-blue-600 hover:text-blue-700">
                     conditions générales d'utilisation
-                  </a>{' '}
+                  </Link>{' '}
                   et la{' '}
-                  <a href="#" className="text-blue-600 hover:text-blue-700">
+                  <Link href="/legal/privacy" className="text-blue-600 hover:text-blue-700">
                     politique de confidentialité
-                  </a>
+                  </Link>
                 </label>
               </div>
+
+              {/* Captcha (si activé) */}
+              {CAPTCHA_CONFIG.enabled && (
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
+                    <Shield className="h-4 w-4" />
+                    <span>Vérification de sécurité</span>
+                  </div>
+                  <div ref={captchaRef}>
+                    <Captcha
+                      siteKey={CAPTCHA_SITE_KEYS.hcaptcha}
+                      onVerify={handleCaptchaVerify}
+                      onExpire={handleCaptchaExpire}
+                      onError={(error) => setRateLimitError(`Erreur captcha: ${error}`)}
+                    />
+                  </div>
+                  {captchaToken && (
+                    <div className="mt-2 flex items-center gap-2 text-green-600 text-sm">
+                      <CheckCircle className="h-4 w-4" />
+                      <span>Vérification réussie</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Rate limit error */}
+              {rateLimitError && (
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg flex items-center gap-2 text-orange-700">
+                  <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                  <span className="text-sm">{rateLimitError}</span>
+                </div>
+              )}
 
               {/* Bouton submit */}
               <button
                 type="submit"
-                disabled={isLoading || !passwordValidation.isStrong || !passwordsMatch}
-                className="w-full py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed"
+                disabled={isLoading || !passwordValidation.isStrong || !passwordsMatch || (CAPTCHA_CONFIG.enabled && !captchaToken)}
+                className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {isLoading ? 'Création en cours...' : 'Créer mon compte'}
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Création en cours...
+                  </>
+                ) : (
+                  'Créer mon compte'
+                )}
               </button>
             </form>
 

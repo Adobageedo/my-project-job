@@ -12,6 +12,31 @@ export * from './companyService';
 export * from './offerService';
 export * from './adminService';
 
+// Application service (explicit exports to avoid conflicts with candidateService)
+export {
+  getCandidateApplications,
+  getApplicationById,
+  getApplicationForOffer,
+  withdrawApplication as withdrawCandidateApplication,
+  deleteApplication,
+  getCandidateApplicationStats,
+  hasAppliedToOffer,
+  type FrontendApplication,
+  type ApplicationStatus as AppStatus,
+} from './applicationService';
+
+// Saved offers service (explicit exports to avoid conflicts with candidateService)
+export {
+  getSavedOffers as getCandidateSavedOffers,
+  saveOffer as saveCandidateOffer,
+  unsaveOffer as unsaveCandidateOffer,
+  updateSavedOfferNotes,
+  isOfferSaved,
+  toggleSaveOffer,
+  getSavedOffersCount,
+  type FrontendSavedOffer,
+} from './savedOfferService';
+
 // Notifications (explicit exports to avoid conflicts)
 export {
   getNotificationSettings,

@@ -140,6 +140,47 @@ export class AIParsingService {
     }
   }
 
+  async parseJobOfferWithVision(base64Image: string, mimeType: string) {
+    const startTime = Date.now();
+
+    try {
+      const result = await withRetry(() => this.openai.parseJobOfferWithVision(base64Image, mimeType), {
+        maxAttempts: 2,
+        initialDelay: 1000,
+      });
+
+      // Log dans Supabase
+      await this.supabase.client.from('ai_parsing_logs').insert({
+        entity_type: 'offer',
+        input_type: 'vision',
+        input_size: base64Image.length,
+        model: 'gpt-4o',
+        prompt_tokens: result.usage?.prompt_tokens,
+        response_tokens: result.usage?.completion_tokens,
+        total_cost: this.calculateCost(result.usage),
+        status: 'success',
+        duration: Date.now() - startTime,
+        parsed_data: result.data,
+      });
+
+      return result.data;
+    } catch (error: any) {
+      this.logger.error(`Job Offer Vision parsing failed: ${error.message}`, error.stack, 'AIParsingService');
+
+      await this.supabase.client.from('ai_parsing_logs').insert({
+        entity_type: 'offer',
+        input_type: 'vision',
+        input_size: base64Image.length,
+        model: 'gpt-4o',
+        status: 'error',
+        duration: Date.now() - startTime,
+        error_message: error.message,
+      });
+
+      throw error;
+    }
+  }
+
   private calculateCost(usage?: { prompt_tokens?: number; completion_tokens?: number }): number {
     if (!usage) return 0;
     // GPT-4 Turbo pricing

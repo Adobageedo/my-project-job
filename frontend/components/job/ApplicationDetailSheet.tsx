@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   X,
   User,
@@ -22,33 +23,92 @@ import {
   XCircle,
   AlertCircle,
   History,
+  Eye,
+  ArrowRight,
 } from 'lucide-react';
-import { Application, ApplicationStatus, ApplicationNote } from '@/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { LocationHierarchy } from '../shared/LocationTag';
 
+// Flexible application interface that works with both old and new formats
+interface ApplicationDetailData {
+  id: string;
+  applicationDate: string;
+  status: string;
+  coverLetter?: string | null;
+  cvUrl?: string | null;
+  offer: {
+    id?: string;
+    title: string;
+    company: {
+      name: string;
+    };
+    location?: string;
+    duration?: string;
+    contractType?: string;
+    salary?: string;
+  };
+  // Optional candidate data (only for company/admin views)
+  candidate?: {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+    school?: string;
+    studyLevel?: string;
+    specialization?: string;
+  };
+  // Status history (optional)
+  statusHistory?: Array<{
+    fromStatus: string;
+    toStatus: string;
+    changedAt: string;
+    changedBy?: string;
+    reason?: string;
+  }>;
+  // Notes (optional)
+  notes?: Array<{
+    id: string;
+    content: string;
+    authorName: string;
+    createdAt: string;
+    isPrivate?: boolean;
+  }>;
+}
+
 interface ApplicationDetailSheetProps {
-  application: Application;
+  application: ApplicationDetailData;
   isOpen: boolean;
   onClose: () => void;
-  onStatusChange?: (status: ApplicationStatus) => void;
+  onStatusChange?: (status: string) => void;
   onAddNote?: (note: string) => void;
   viewMode: 'candidate' | 'company' | 'admin';
 }
 
-const statusConfig: Record<ApplicationStatus, { label: string; color: string; icon: React.ReactNode; bgColor: string }> = {
+const statusConfig: Record<string, { label: string; color: string; icon: React.ReactNode; bgColor: string }> = {
   pending: {
     label: 'En attente',
     color: 'text-amber-700',
     bgColor: 'bg-amber-100',
     icon: <Clock className="h-5 w-5" />,
   },
+  in_progress: {
+    label: 'En cours d\'examen',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-100',
+    icon: <AlertCircle className="h-5 w-5" />,
+  },
   reviewing: {
     label: 'En cours d\'examen',
     color: 'text-blue-700',
     bgColor: 'bg-blue-100',
     icon: <AlertCircle className="h-5 w-5" />,
+  },
+  interview: {
+    label: 'Entretien',
+    color: 'text-purple-700',
+    bgColor: 'bg-purple-100',
+    icon: <User className="h-5 w-5" />,
   },
   accepted: {
     label: 'Acceptée',
@@ -60,6 +120,12 @@ const statusConfig: Record<ApplicationStatus, { label: string; color: string; ic
     label: 'Refusée',
     color: 'text-red-700',
     bgColor: 'bg-red-100',
+    icon: <XCircle className="h-5 w-5" />,
+  },
+  withdrawn: {
+    label: 'Retirée',
+    color: 'text-gray-700',
+    bgColor: 'bg-gray-100',
     icon: <XCircle className="h-5 w-5" />,
   },
 };
@@ -79,7 +145,7 @@ export function ApplicationDetailSheet({
   if (!isOpen) return null;
 
   const { candidate, offer, status } = application;
-  const statusInfo = statusConfig[status];
+  const statusInfo = statusConfig[status] || statusConfig.pending;
 
   const handleAddNote = async () => {
     if (!newNote.trim() || !onAddNote) return;
@@ -162,121 +228,196 @@ export function ApplicationDetailSheet({
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'details' && (
             <div className="space-y-6">
-              {/* Candidat */}
-              <section>
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  Candidat
-                </h3>
-                <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-4">
-                    <div className="h-14 w-14 bg-blue-100 rounded-full flex items-center justify-center">
-                      <span className="text-xl font-semibold text-blue-600">
-                        {candidate.firstName[0]}{candidate.lastName[0]}
-                      </span>
+              {/* Candidat - Only show for company/admin views when candidate data exists */}
+              {viewMode !== 'candidate' && candidate && (
+                <section>
+                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Candidat
+                  </h3>
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-4">
+                      <div className="h-14 w-14 bg-blue-100 rounded-full flex items-center justify-center">
+                        <span className="text-xl font-semibold text-blue-600">
+                          {(candidate.firstName?.[0] || '?')}{(candidate.lastName?.[0] || '?')}
+                        </span>
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-semibold text-gray-900">
+                          {candidate.firstName || ''} {candidate.lastName || ''}
+                        </h4>
+                        {candidate.specialization && (
+                          <p className="text-gray-600">{candidate.specialization}</p>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-lg font-semibold text-gray-900">
-                        {candidate.firstName} {candidate.lastName}
-                      </h4>
-                      <p className="text-gray-600">{candidate.specialization}</p>
+
+                    <div className="grid grid-cols-2 gap-3 pt-3 border-t">
+                      {candidate.email && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Mail className="h-4 w-4 text-gray-400" />
+                          <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline">
+                            {candidate.email}
+                          </a>
+                        </div>
+                      )}
+                      {candidate.phone && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Phone className="h-4 w-4 text-gray-400" />
+                          <a href={`tel:${candidate.phone}`} className="text-blue-600 hover:underline">
+                            {candidate.phone}
+                          </a>
+                        </div>
+                      )}
+                      {candidate.school && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <GraduationCap className="h-4 w-4 text-gray-400" />
+                          <span>{candidate.school}</span>
+                        </div>
+                      )}
+                      {candidate.studyLevel && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                            {candidate.studyLevel}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
+                </section>
+              )}
 
-                  <div className="grid grid-cols-2 gap-3 pt-3 border-t">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Mail className="h-4 w-4 text-gray-400" />
-                      <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline">
-                        {candidate.email}
-                      </a>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <Phone className="h-4 w-4 text-gray-400" />
-                      <a href={`tel:${candidate.phone}`} className="text-blue-600 hover:underline">
-                        {candidate.phone}
-                      </a>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <GraduationCap className="h-4 w-4 text-gray-400" />
-                      <span>{candidate.school}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                        {candidate.studyLevel}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* CV */}
-                  {application.cvUrl && (
-                    <div className="pt-3 border-t">
-                      <a
-                        href={application.cvUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-blue-600 hover:text-blue-700"
-                      >
-                        <FileText className="h-4 w-4" />
-                        <span>Voir le CV</span>
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {/* Offre */}
+              {/* Offre - Clickable to view offer details */}
               <section>
                 <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                   <Briefcase className="h-4 w-4" />
                   Offre
                 </h3>
-                <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900">{offer.title}</h4>
-                    <div className="flex items-center gap-2 text-gray-600 mt-1">
-                      <Building2 className="h-4 w-4" />
-                      <span>{offer.company.name}</span>
+                <Link 
+                  href={offer.id ? `/candidate/offers/${offer.id}` : '#'}
+                  className="block bg-gray-50 rounded-xl p-4 space-y-3 hover:bg-blue-50 hover:border-blue-200 border border-transparent transition group"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900 group-hover:text-blue-700 transition">
+                        {offer.title}
+                      </h4>
+                      <div className="flex items-center gap-2 text-gray-600 mt-1">
+                        <Building2 className="h-4 w-4" />
+                        <span>{offer.company?.name || 'Entreprise'}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 text-blue-600 opacity-0 group-hover:opacity-100 transition">
+                      <span className="text-sm font-medium">Voir l'offre</span>
+                      <ArrowRight className="h-4 w-4" />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 pt-3 border-t">
-                    <div className="flex items-center gap-2 text-sm">
-                      <MapPin className="h-4 w-4 text-gray-400" />
-                      <span>{offer.location}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <Calendar className="h-4 w-4 text-gray-400" />
-                      <span>{offer.duration}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium capitalize">
-                        {offer.contractType}
-                      </span>
-                    </div>
+                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200">
+                    {offer.location && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <MapPin className="h-4 w-4 text-gray-400" />
+                        <span>{offer.location}</span>
+                      </div>
+                    )}
+                    {offer.duration && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Calendar className="h-4 w-4 text-gray-400" />
+                        <span>{offer.duration}</span>
+                      </div>
+                    )}
+                    {offer.contractType && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium capitalize">
+                          {offer.contractType}
+                        </span>
+                      </div>
+                    )}
                     {offer.salary && (
                       <div className="flex items-center gap-2 text-sm text-green-600 font-medium">
                         {offer.salary}
                       </div>
                     )}
                   </div>
-                </div>
+                </Link>
               </section>
 
-              {/* Lettre de motivation */}
-              {application.coverLetter && (
-                <section>
-                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4" />
-                    Lettre de motivation
-                  </h3>
-                  <div className="bg-gray-50 rounded-xl p-4">
-                    <p className="text-gray-700 whitespace-pre-wrap">
-                      {application.coverLetter}
-                    </p>
-                  </div>
-                </section>
-              )}
+              {/* Documents de candidature */}
+              <section>
+                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Documents de candidature
+                </h3>
+                <div className="bg-gray-50 rounded-xl p-4 space-y-4">
+                  {/* CV */}
+                  {application.cvUrl ? (
+                    <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                          <FileText className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">CV utilisé</p>
+                          <p className="text-sm text-gray-500">Document PDF</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={application.cvUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition"
+                        >
+                          <Eye className="h-4 w-4" />
+                          Voir
+                        </a>
+                        <a
+                          href={application.cvUrl}
+                          download
+                          className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                        >
+                          <Download className="h-4 w-4" />
+                          Télécharger
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200 text-gray-500">
+                      <div className="p-2 bg-gray-100 rounded-lg">
+                        <FileText className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <p className="text-sm">Aucun CV attaché à cette candidature</p>
+                    </div>
+                  )}
+
+                  {/* Lettre de motivation */}
+                  {application.coverLetter ? (
+                    <div className="p-3 bg-white rounded-lg border border-gray-200">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="p-2 bg-purple-100 rounded-lg">
+                          <MessageSquare className="h-5 w-5 text-purple-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">Lettre de motivation</p>
+                          <p className="text-sm text-gray-500">Message personnalisé</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 p-4 bg-gray-50 rounded-lg border-l-4 border-purple-400">
+                        <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">
+                          {application.coverLetter}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200 text-gray-500">
+                      <div className="p-2 bg-gray-100 rounded-lg">
+                        <MessageSquare className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <p className="text-sm">Aucune lettre de motivation</p>
+                    </div>
+                  )}
+                </div>
+              </section>
 
               {/* Actions (pour entreprise/admin) */}
               {viewMode !== 'candidate' && onStatusChange && (
@@ -328,34 +469,38 @@ export function ApplicationDetailSheet({
                 <div className="relative">
                   <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
                   
-                  {application.statusHistory.map((change, index) => (
-                    <div key={change.id} className="relative pl-10 pb-6">
-                      <div className={`
-                        absolute left-2 w-5 h-5 rounded-full border-2 border-white
-                        ${statusConfig[change.toStatus].bgColor}
-                      `} />
-                      
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`font-medium ${statusConfig[change.toStatus].color}`}>
-                            {statusConfig[change.toStatus].label}
-                          </span>
-                          <ChevronRight className="h-4 w-4 text-gray-400" />
-                          <span className="text-sm text-gray-500">
-                            depuis {statusConfig[change.fromStatus].label}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600">
-                          Par {change.changedBy} • {format(new Date(change.changedAt), 'dd/MM/yyyy à HH:mm', { locale: fr })}
-                        </p>
-                        {change.reason && (
-                          <p className="text-sm text-gray-500 mt-2 italic">
-                            "{change.reason}"
+                  {application.statusHistory.map((change, index) => {
+                    const toConfig = statusConfig[change.toStatus] || statusConfig.pending;
+                    const fromConfig = statusConfig[change.fromStatus] || statusConfig.pending;
+                    return (
+                      <div key={index} className="relative pl-10 pb-6">
+                        <div className={`
+                          absolute left-2 w-5 h-5 rounded-full border-2 border-white
+                          ${toConfig.bgColor}
+                        `} />
+                        
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`font-medium ${toConfig.color}`}>
+                              {toConfig.label}
+                            </span>
+                            <ChevronRight className="h-4 w-4 text-gray-400" />
+                            <span className="text-sm text-gray-500">
+                              depuis {fromConfig.label}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600">
+                            {change.changedBy ? `Par ${change.changedBy} • ` : ''}{format(new Date(change.changedAt), 'dd/MM/yyyy à HH:mm', { locale: fr })}
                           </p>
-                        )}
+                          {change.reason && (
+                            <p className="text-sm text-gray-500 mt-2 italic">
+                              "{change.reason}"
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8 text-gray-500">
@@ -441,16 +586,28 @@ export function ApplicationDetailSheet({
             Fermer
           </button>
           
-          {viewMode === 'candidate' && application.cvUrl && (
-            <a
-              href={application.cvUrl}
-              download
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
-            >
-              <Download className="h-4 w-4" />
-              Télécharger mon CV
-            </a>
-          )}
+          <div className="flex items-center gap-3">
+            {application.cvUrl && (
+              <a
+                href={application.cvUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition flex items-center gap-2"
+              >
+                <Eye className="h-4 w-4" />
+                Voir mon CV
+              </a>
+            )}
+            {offer.id && (
+              <Link
+                href={`/candidate/offers/${offer.id}`}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
+              >
+                <Briefcase className="h-4 w-4" />
+                Voir l'offre
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 

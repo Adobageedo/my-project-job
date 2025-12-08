@@ -8,9 +8,12 @@ import Footer from '@/components/layout/Footer';
 import { useCandidate } from '@/contexts/AuthContext';
 import Modal from '@/components/shared/Modal';
 import { ApplicationDetailSheet } from '@/components/job/ApplicationDetailSheet';
-import { applications as mockApplications } from '@/data/index';
-import { withdrawApplication as deleteApplication } from '@/services/candidateService';
-import { Application, ApplicationStatus } from '@/types';
+import { 
+  getCandidateApplications, 
+  withdrawApplication, 
+  FrontendApplication,
+  ApplicationStatus 
+} from '@/services/applicationService';
 import { 
   Calendar, 
   Building2, 
@@ -24,29 +27,35 @@ import {
   MapPin,
   Trash2,
   AlertTriangle,
+  Loader2,
+  UserCheck,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-const statusConfig: Record<ApplicationStatus, { label: string; color: string; bg: string; icon: any }> = {
+// Map DB status to display config
+const statusConfig: Record<string, { label: string; color: string; bg: string; icon: any }> = {
   pending: { label: 'En attente', color: 'text-amber-700', bg: 'bg-amber-100', icon: Clock },
-  reviewing: { label: 'En examen', color: 'text-blue-700', bg: 'bg-blue-100', icon: AlertCircle },
+  in_progress: { label: 'En examen', color: 'text-blue-700', bg: 'bg-blue-100', icon: AlertCircle },
+  interview: { label: 'Entretien', color: 'text-purple-700', bg: 'bg-purple-100', icon: UserCheck },
   accepted: { label: 'Acceptée', color: 'text-green-700', bg: 'bg-green-100', icon: CheckCircle },
   rejected: { label: 'Refusée', color: 'text-red-700', bg: 'bg-red-100', icon: XCircle },
+  withdrawn: { label: 'Retirée', color: 'text-gray-700', bg: 'bg-gray-100', icon: XCircle },
 };
 
 export default function CandidateApplicationsPage() {
   const { candidate } = useCandidate();
   const candidateId = candidate?.id;
   
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
+  const [applications, setApplications] = useState<FrontendApplication[]>([]);
+  const [selectedApplication, setSelectedApplication] = useState<FrontendApplication | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | 'all'>('all');
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
   // État pour la suppression
-  const [applicationToDelete, setApplicationToDelete] = useState<Application | null>(null);
+  const [applicationToDelete, setApplicationToDelete] = useState<FrontendApplication | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -54,29 +63,40 @@ export default function CandidateApplicationsPage() {
   useEffect(() => {
     if (candidateId) {
       loadApplications();
+    } else {
+      setLoading(false);
     }
   }, [candidateId]);
 
   const loadApplications = async () => {
     if (!candidateId) return;
     
+    setLoading(true);
     try {
-      setApplications(mockApplications.filter((app: Application) => app.candidateId === candidateId));
+      const data = await getCandidateApplications(candidateId);
+      // Filter out withdrawn applications
+      setApplications(data.filter(app => app.status !== 'withdrawn'));
     } catch (error) {
-      console.error(error);
+      console.error('Error loading applications:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
   // Appliquer les filtres
   const filteredApplications = applications.filter((app) => {
-    const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
+    let matchesStatus = statusFilter === 'all' || app.status === statusFilter;
+    // Handle combined "in_progress" filter (includes in_progress and interview)
+    if (statusFilter === 'in_progress') {
+      matchesStatus = app.status === 'in_progress' || app.status === 'interview';
+    }
     const matchesSearch = searchTerm === '' || 
-      app.offer.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      app.offer.company.name.toLowerCase().includes(searchTerm.toLowerCase());
+      (app.offer?.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (app.offer?.company?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
     return matchesStatus && matchesSearch;
   });
 
-  // Fonction de suppression
+  // Fonction de suppression (retrait de candidature)
   const handleDeleteApplication = async () => {
     if (!applicationToDelete || !candidateId) return;
     
@@ -84,7 +104,10 @@ export default function CandidateApplicationsPage() {
     setDeleteError(null);
     
     try {
-      await deleteApplication(applicationToDelete.id, candidateId);
+      const result = await withdrawApplication(applicationToDelete.id, candidateId);
+      if (!result.success) {
+        throw new Error(result.error || 'Erreur lors du retrait');
+      }
       setApplications(prev => prev.filter(app => app.id !== applicationToDelete.id));
       setShowDeleteModal(false);
       setApplicationToDelete(null);
@@ -99,10 +122,25 @@ export default function CandidateApplicationsPage() {
   const stats = {
     total: applications.length,
     pending: applications.filter((app) => app.status === 'pending').length,
-    reviewing: applications.filter((app) => app.status === 'reviewing').length,
+    inProgress: applications.filter((app) => app.status === 'in_progress').length,
+    interview: applications.filter((app) => app.status === 'interview').length,
     accepted: applications.filter((app) => app.status === 'accepted').length,
     rejected: applications.filter((app) => app.status === 'rejected').length,
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <NavBar role="candidate" />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="ml-3 text-gray-600">Chargement des candidatures...</span>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -147,17 +185,17 @@ export default function CandidateApplicationsPage() {
             </button>
             
             <button
-              onClick={() => setStatusFilter('reviewing')}
+              onClick={() => setStatusFilter('in_progress')}
               className={`p-4 rounded-xl transition ${
-                statusFilter === 'reviewing' 
+                statusFilter === 'in_progress' 
                   ? 'bg-blue-500 text-white shadow-lg' 
                   : 'bg-blue-50 border border-blue-200 hover:border-blue-300'
               }`}
             >
-              <div className={`text-2xl font-bold ${statusFilter === 'reviewing' ? 'text-white' : 'text-blue-700'}`}>
-                {stats.reviewing}
+              <div className={`text-2xl font-bold ${statusFilter === 'in_progress' ? 'text-white' : 'text-blue-700'}`}>
+                {stats.inProgress + stats.interview}
               </div>
-              <div className={`text-sm ${statusFilter === 'reviewing' ? 'text-blue-100' : 'text-blue-700'}`}>En examen</div>
+              <div className={`text-sm ${statusFilter === 'in_progress' ? 'text-blue-100' : 'text-blue-700'}`}>En cours</div>
             </button>
             
             <button
@@ -207,7 +245,8 @@ export default function CandidateApplicationsPage() {
           {filteredApplications.length > 0 ? (
             <div className="space-y-4">
               {filteredApplications.map((application) => {
-                const StatusIcon = statusConfig[application.status].icon;
+                const config = statusConfig[application.status] || statusConfig.pending;
+                const StatusIcon = config.icon;
                 return (
                   <div
                     key={application.id}
@@ -225,10 +264,10 @@ export default function CandidateApplicationsPage() {
                           </h3>
                           <span className={`
                             inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium
-                            ${statusConfig[application.status].bg} ${statusConfig[application.status].color}
+                            ${config.bg} ${config.color}
                           `}>
                             <StatusIcon className="h-3 w-3" />
-                            {statusConfig[application.status].label}
+                            {config.label}
                           </span>
                         </div>
                         
@@ -237,7 +276,7 @@ export default function CandidateApplicationsPage() {
                           <span>{application.offer.company.name}</span>
                           <span className="text-gray-300">•</span>
                           <MapPin className="h-4 w-4" />
-                          <span>{application.offer.location}</span>
+                          <span>{application.offer.location || 'Non spécifié'}</span>
                         </div>
 
                         <div className="flex items-center gap-4 text-sm text-gray-500">
@@ -245,12 +284,16 @@ export default function CandidateApplicationsPage() {
                             <Calendar className="h-4 w-4" />
                             Postulé le {format(new Date(application.applicationDate), 'dd MMMM yyyy', { locale: fr })}
                           </span>
-                          <span className="px-2 py-0.5 bg-gray-100 rounded-full text-xs capitalize">
-                            {application.offer.contractType}
-                          </span>
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">
-                            {application.offer.duration}
-                          </span>
+                          {application.offer?.contractType && (
+                            <span className="px-2 py-0.5 bg-gray-100 rounded-full text-xs capitalize">
+                              {application.offer.contractType}
+                            </span>
+                          )}
+                          {application.offer?.duration && (
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">
+                              {application.offer.duration}
+                            </span>
+                          )}
                         </div>
                       </div>
 

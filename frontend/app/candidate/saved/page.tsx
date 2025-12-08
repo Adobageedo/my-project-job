@@ -5,15 +5,14 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
-import JobCard from '@/components/job/JobCard';
 import Modal from '@/components/shared/Modal';
 import { useCandidate } from '@/contexts/AuthContext';
 import { 
   getSavedOffers, 
   unsaveOffer, 
   updateSavedOfferNotes,
-  SavedOffer 
-} from '@/services/candidateService';
+  FrontendSavedOffer 
+} from '@/services/savedOfferService';
 import { 
   Bookmark, 
   Search, 
@@ -23,10 +22,11 @@ import {
   MapPin,
   Building2,
   ExternalLink,
-  AlertTriangle,
-  X,
   Edit3,
   Check,
+  Loader2,
+  Heart,
+  Briefcase,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -35,12 +35,12 @@ export default function SavedOffersPage() {
   const { candidate } = useCandidate();
   const candidateId = candidate?.id;
   
-  const [savedOffers, setSavedOffers] = useState<SavedOffer[]>([]);
+  const [savedOffers, setSavedOffers] = useState<FrontendSavedOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
   // États pour la suppression
-  const [offerToRemove, setOfferToRemove] = useState<SavedOffer | null>(null);
+  const [offerToRemove, setOfferToRemove] = useState<FrontendSavedOffer | null>(null);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   
@@ -68,14 +68,16 @@ export default function SavedOffersPage() {
   };
 
   const handleRemoveOffer = async () => {
-    if (!offerToRemove) return;
+    if (!offerToRemove || !candidateId) return;
     
     setIsRemoving(true);
     try {
-      await unsaveOffer(candidateId, offerToRemove.offerId);
-      setSavedOffers(prev => prev.filter(s => s.id !== offerToRemove.id));
-      setShowRemoveModal(false);
-      setOfferToRemove(null);
+      const result = await unsaveOffer(candidateId, offerToRemove.offer.id);
+      if (result.success) {
+        setSavedOffers(prev => prev.filter(s => s.id !== offerToRemove.id));
+        setShowRemoveModal(false);
+        setOfferToRemove(null);
+      }
     } catch (error) {
       console.error('Erreur lors de la suppression:', error);
     } finally {
@@ -84,13 +86,17 @@ export default function SavedOffersPage() {
   };
 
   const handleSaveNote = async (offerId: string) => {
+    if (!candidateId) return;
+    
     try {
-      await updateSavedOfferNotes(candidateId, offerId, noteText);
-      setSavedOffers(prev => prev.map(s => 
-        s.offerId === offerId ? { ...s, notes: noteText } : s
-      ));
-      setEditingNoteId(null);
-      setNoteText('');
+      const result = await updateSavedOfferNotes(candidateId, offerId, noteText);
+      if (result.success) {
+        setSavedOffers(prev => prev.map(s => 
+          s.offer.id === offerId ? { ...s, notes: noteText } : s
+        ));
+        setEditingNoteId(null);
+        setNoteText('');
+      }
     } catch (error) {
       console.error('Erreur lors de la sauvegarde de la note:', error);
     }
@@ -98,9 +104,9 @@ export default function SavedOffersPage() {
 
   const filteredOffers = savedOffers.filter(saved => 
     searchTerm === '' ||
-    saved.offer.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    saved.offer.company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    saved.offer.location?.toLowerCase().includes(searchTerm.toLowerCase())
+    (saved.offer?.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (saved.offer?.company?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (saved.offer?.location || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -173,7 +179,7 @@ export default function SavedOffersPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <Link 
-                            href={`/candidate/offers/${saved.offerId}`}
+                            href={`/candidate/offers/${saved.offer.id}`}
                             className="text-lg font-semibold text-gray-900 hover:text-blue-600 transition"
                           >
                             {saved.offer.title}
@@ -192,7 +198,7 @@ export default function SavedOffersPage() {
                           </span>
                           <span className="flex items-center gap-1">
                             <MapPin className="h-4 w-4" />
-                            {saved.offer.location}
+                            {saved.offer.location || 'Non spécifié'}
                           </span>
                         </div>
 
@@ -201,18 +207,22 @@ export default function SavedOffersPage() {
                             <Calendar className="h-4 w-4" />
                             Sauvegardé le {format(new Date(saved.savedAt), 'dd MMM yyyy', { locale: fr })}
                           </span>
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs capitalize">
-                            {saved.offer.contractType}
-                          </span>
-                          <span className="px-2 py-0.5 bg-gray-100 rounded-full text-xs">
-                            {saved.offer.duration}
-                          </span>
+                          {saved.offer?.contractType && (
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs capitalize">
+                              {saved.offer.contractType}
+                            </span>
+                          )}
+                          {saved.offer?.duration && (
+                            <span className="px-2 py-0.5 bg-gray-100 rounded-full text-xs">
+                              {saved.offer.duration}
+                            </span>
+                          )}
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
                         <Link
-                          href={`/candidate/offers/${saved.offerId}`}
+                          href={`/candidate/offers/${saved.offer.id}`}
                           className="p-2 hover:bg-gray-100 rounded-lg transition text-gray-500 hover:text-blue-600"
                           title="Voir l'offre"
                         >
@@ -244,7 +254,7 @@ export default function SavedOffersPage() {
                           />
                           <div className="flex gap-2">
                             <button
-                              onClick={() => handleSaveNote(saved.offerId)}
+                              onClick={() => handleSaveNote(saved.offer.id)}
                               className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition flex items-center gap-1"
                             >
                               <Check className="h-4 w-4" />

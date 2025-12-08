@@ -44,7 +44,8 @@ export const FRENCH_REGIONS: Record<string, string[]> = {
 /**
  * Obtenir la région d'une ville
  */
-export const getRegionFromCity = (city: string): string => {
+export const getRegionFromCity = (city?: string | null): string => {
+  if (!city) return 'Autre';
   for (const [region, cities] of Object.entries(FRENCH_REGIONS)) {
     if (cities.some(c => c.toLowerCase() === city.toLowerCase())) {
       return region;
@@ -56,8 +57,8 @@ export const getRegionFromCity = (city: string): string => {
 /**
  * Créer un objet Location à partir d'une ville
  */
-export const createLocationFromCity = (city: string, country: string = 'France'): Location => ({
-  city,
+export const createLocationFromCity = (city?: string | null, country: string = 'France'): Location => ({
+  city: city || '',
   region: getRegionFromCity(city),
   country,
 });
@@ -198,8 +199,10 @@ export interface JobOffer {
   missions: string[];
   objectives: string;
   reporting: string;
-  studyLevel: StudyLevel[];
-  skills: string[];
+  studyLevel?: StudyLevel[];
+  skills?: string[];
+  // Supabase field for required skills (job_offers.required_skills)
+  required_skills?: string[];
   contractType: ContractType;
   duration: string;
   startDate: string;

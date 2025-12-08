@@ -129,14 +129,14 @@ Si une information n'est pas trouvée, OMETS le champ (ne mets PAS null).
 Format attendu:
 {
   "title": "string OBLIGATOIRE - titre du poste",
-  "description": "string ou omis",
+  "description": "string ou cree sur la base des missions et des objectifs",
   "missions": ["array", "de", "missions"] ou omis,
-  "objectives": "string ou omis",
+  "objectives": "string ou cree sur la base de la fiche de poste",
   "studyLevels": ["L3", "M1", "M2", "MBA"] ou omis,
   "skills": ["array", "de", "compétences"] ou omis,
   "contractType": "stage" | "alternance" | "apprentissage" - défaut "stage",
   "duration": "string ex: '6 mois' ou omis",
-  "startDate": "string ex: 'Janvier 2025' ou omis",
+  "startDate": "string AU FORMAT ISO 'YYYY-MM-DD' ex: '2025-09-01' ou omis",
   "location": "string ex: 'Paris' ou omis",
   "salary": "string ex: '1500€/mois' ou omis"
 }`;
@@ -279,5 +279,57 @@ Corrige et retourne un JSON valide.`;
 
     // Return partial data anyway (all fields are optional)
     return { data: parsedData as ParsedCV, usage: completion.usage };
+  }
+
+  /**
+   * Parse une fiche de poste à partir d'une image avec GPT-4 Vision
+   */
+  async parseJobOfferWithVision(base64Image: string, mimeType: string): Promise<{ data: ParsedJobOffer; usage: OpenAI.Completions.CompletionUsage | undefined }> {
+    const completion = await this.openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: this.getJobOfferSystemPrompt(),
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Analyse cette image de fiche de poste et extrait les informations demandées. Retourne UNIQUEMENT le JSON, sans texte avant ou après.',
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:${mimeType};base64,${base64Image}`,
+                detail: 'high',
+              },
+            },
+          ],
+        },
+      ],
+      max_tokens: this.maxTokens,
+      temperature: this.temperature,
+      response_format: { type: 'json_object' },
+    });
+
+    const content = completion.choices[0].message.content;
+    if (!content) throw new Error('No response from GPT-4 Vision');
+
+    const raw = JSON.parse(content);
+    const parsedData = this.cleanNullValues(raw);
+    const result = JobOfferSchema.safeParse(parsedData);
+
+    if (result.success) {
+      return { data: result.data, usage: completion.usage };
+    }
+
+    // Log validation errors
+    const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+    this.logger.warn(`Job Offer Vision validation failed: ${errors}`);
+
+    // Return partial data anyway (all fields are optional)
+    return { data: parsedData as ParsedJobOffer, usage: completion.usage };
   }
 }

@@ -9,10 +9,10 @@ import JobCard from '@/components/job/JobCard';
 import Modal from '@/components/shared/Modal';
 import { LocationFilter } from '@/components/shared/LocationSearch';
 import { LoginPrompt } from '@/components/shared/LoginPrompt';
-import { getAllOffers } from '@/services/offerService';
+import { getAllOffersForCandidate, FrontendJobOffer } from '@/services/offerService';
 import { getCurrentCandidate, getSavedCVs, createSavedSearch, getSavedSearches, SavedSearch, AlertFrequency } from '@/services/candidateService';
 import { useFeatureAccess } from '@/hooks/useRoleAuth';
-import { JobOffer, FRENCH_REGIONS, getRegionFromCity } from '@/types';
+import { FRENCH_REGIONS, getRegionFromCity } from '@/types';
 import { 
   Search, 
   MapPin, 
@@ -33,7 +33,7 @@ export default function CandidateOffersPage() {
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [cvUrl, setCvUrl] = useState<string | null>(null);
   const [cvCount, setCvCount] = useState<number>(0);
-  const [offers, setOffers] = useState<JobOffer[]>([]);
+  const [offers, setOffers] = useState<FrontendJobOffer[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -63,8 +63,8 @@ export default function CandidateOffersPage() {
     const loadData = async () => {
       setLoading(true);
       try {
-        // Charger toujours les offres (accès public)
-        const offersData = await getAllOffers();
+        // Charger toujours les offres (accès public) - format frontend-compatible
+        const offersData = await getAllOffersForCandidate();
         setOffers(offersData);
 
         // Puis, si l'utilisateur est connecté, charger les données candidat via service
@@ -162,21 +162,21 @@ export default function CandidateOffersPage() {
   const filteredOffers = offers.filter((offer) => {
     const matchesSearch =
       searchTerm === '' ||
-      offer.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      offer.company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      offer.description.toLowerCase().includes(searchTerm.toLowerCase());
+      (offer.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (offer.company?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (offer.description || '').toLowerCase().includes(searchTerm.toLowerCase());
 
     // Filtrage par localisation hiérarchique
     let matchesLocation = true;
     if (filters.city) {
-      matchesLocation = offer.location.toLowerCase().includes(filters.city.toLowerCase());
+      matchesLocation = (offer.location || '').toLowerCase().includes(filters.city.toLowerCase());
     } else if (filters.region) {
       const offerRegion = getRegionFromCity(offer.location);
       matchesLocation = offerRegion === filters.region;
     }
 
     const matchesStudyLevel =
-      filters.studyLevel === '' || offer.studyLevel.includes(filters.studyLevel as any);
+      filters.studyLevel === '' || (offer.studyLevel || []).includes(filters.studyLevel as any);
 
     const matchesContractType =
       filters.contractType === '' || offer.contractType === filters.contractType;

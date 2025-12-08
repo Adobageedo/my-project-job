@@ -172,6 +172,7 @@ export async function registerCompany(
     contactName?: string;
     contactPhone?: string;
     roles?: CompanyRole[];
+    captchaToken?: string | null;
   }
 ): Promise<AuthUser> {
   try {

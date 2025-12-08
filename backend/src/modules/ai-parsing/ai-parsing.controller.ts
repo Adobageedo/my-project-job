@@ -178,8 +178,128 @@ export class AIParsingController {
   }
 
   @Post('job-offer')
-  @ApiOperation({ summary: 'Parse fiche de poste avec IA' })
+  @ApiOperation({ summary: 'Parse fiche de poste avec IA (texte)' })
   async parseOffer(@Body() dto: ParseOfferDto) {
     return this.aiService.parseJobOffer(dto);
+  }
+
+  @Post('job-offer/upload')
+  @ApiOperation({ summary: 'Upload et parse fiche de poste (PDF) avec IA' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Job offer PDF file (max 10MB)',
+        },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+    fileFilter: (req, file, callback) => {
+      if (file.mimetype !== 'application/pdf') {
+        callback(new BadRequestException('Seuls les fichiers PDF sont acceptés'), false);
+      } else {
+        callback(null, true);
+      }
+    },
+  }))
+  async parseJobOfferUpload(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Aucun fichier uploadé');
+    }
+
+    let text = '';
+    let imageBuffers: Buffer[] = [];
+
+    try {
+      // ========================================
+      // STEP 1: Try regular text extraction from PDF
+      // ========================================
+      try {
+        const parser = new PDFParse({ data: file.buffer });
+        const result = await parser.getText();
+        text = result.text?.trim() || '';
+        await parser.destroy?.();
+      } catch (pdfError: any) {
+        console.error('[AIParsingController] PDF text extraction failed:', pdfError.message);
+      }
+
+      // ========================================
+      // STEP 2: If text empty, try OCR with Tesseract
+      // ========================================
+      if (!isTextMeaningful(text)) {
+        // Convert PDF to images
+        try {
+          const pdfDocument = await pdf(file.buffer, { scale: 2 });
+          let pageNum = 0;
+          
+          for await (const image of pdfDocument) {
+            pageNum++;
+            if (pageNum > 5) break; // Limit to 5 pages
+            imageBuffers.push(image);
+          }
+        } catch (convError: any) {
+          console.error('[AIParsingController] PDF to image conversion failed:', convError.message);
+        }
+
+        // Run OCR on images
+        if (imageBuffers.length > 0) {
+          const ocrTexts: string[] = [];
+          
+          for (let i = 0; i < imageBuffers.length; i++) {
+            try {
+              const ocrResult = await Tesseract.recognize(imageBuffers[i], 'fra+eng', {
+                logger: () => {},
+              });
+              
+              if (ocrResult.data.text?.trim()) {
+                ocrTexts.push(ocrResult.data.text.trim());
+              }
+            } catch (ocrError: any) {
+              console.error(`[AIParsingController] OCR failed for page ${i + 1}:`, ocrError.message);
+            }
+          }
+          
+          if (ocrTexts.length > 0) {
+            text = ocrTexts.join('\n\n');
+          }
+        }
+      }
+
+      // ========================================
+      // STEP 3: If still no text, use GPT-4 Vision
+      // ========================================
+      if (!isTextMeaningful(text) && imageBuffers.length > 0) {
+        const base64Image = imageBuffers[0].toString('base64');
+        return this.aiService.parseJobOfferWithVision(base64Image, 'image/png');
+      }
+
+      // ========================================
+      // Final validation
+      // ========================================
+      if (!isTextMeaningful(text)) {
+        throw new BadRequestException(
+          'Impossible d\'extraire le texte du fichier. ' +
+          'Le fichier semble corrompu ou dans un format non supporté.'
+        );
+      }
+
+      // Parse extracted text with AI
+      return this.aiService.parseJobOffer({ text, format: 'pdf' });
+
+    } catch (error: any) {
+      if (error instanceof BadRequestException) throw error;
+      
+      console.error('[AIParsingController] Job offer parsing error', {
+        message: error?.message,
+        stack: error?.stack,
+      });
+      throw new BadRequestException(`Erreur lors du traitement du fichier: ${error.message}`);
+    }
   }
 }

@@ -85,7 +85,8 @@ export default function CandidateProfilePage() {
           email: candidateData.email || '',
           phone: candidateData.phone || '',
           school: candidateData.institution || '',
-          studyLevel: candidateData.education_level || 'M1',
+          // Supabase enum values: 'bac','bac+1',...,'bac+6','doctorat'
+          studyLevel: candidateData.education_level || 'bac+4',
           specialization: candidateData.specialization || '',
           alternanceRhythm: candidateData.alternance_rhythm || '',
           availableFrom: candidateData.available_from || '',
@@ -195,7 +196,7 @@ export default function CandidateProfilePage() {
       email: candidate.email || '',
       phone: candidate.phone || '',
       school: candidate.institution || '',
-      studyLevel: candidate.education_level || 'M1',
+      studyLevel: candidate.education_level || 'bac+4',
       specialization: candidate.specialization || '',
       alternanceRhythm: candidate.alternance_rhythm || '',
       availableFrom: candidate.available_from || '',

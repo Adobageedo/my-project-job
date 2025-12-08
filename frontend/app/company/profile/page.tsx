@@ -1,39 +1,95 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
-import { companies } from '@/data/index';
-import { Building2, Mail, Phone, User, Briefcase, Users, Shield, ChevronRight } from 'lucide-react';
+import { getCurrentCompany, updateCompanyProfile, Company } from '@/services/companyService';
+import { Building2, Mail, Phone, User, Briefcase, Users, Shield, ChevronRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function CompanyProfilePage() {
-  // Simuler l'entreprise connectée
-  const initialCompany = companies[0];
-  
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [company, setCompany] = useState<Company | null>(null);
   const [formData, setFormData] = useState({
-    name: initialCompany.name,
-    sector: initialCompany.sector,
-    size: initialCompany.size,
-    contactName: initialCompany.contactName,
-    contactEmail: initialCompany.contactEmail,
-    contactPhone: initialCompany.contactPhone,
+    name: '',
+    sector: '',
+    size: '',
+    contact_name: '',
+    contact_email: '',
+    contact_phone: '',
+    description: '',
+    website: '',
   });
-
   const [isEditing, setIsEditing] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const loadCompany = async () => {
+      try {
+        const companyData = await getCurrentCompany();
+        if (!companyData) {
+          router.push('/login-company');
+          return;
+        }
+        setCompany(companyData);
+        setFormData({
+          name: companyData.name || '',
+          sector: companyData.sector || '',
+          size: companyData.size || '',
+          contact_name: companyData.contact_name || '',
+          contact_email: companyData.contact_email || '',
+          contact_phone: companyData.contact_phone || '',
+          description: companyData.description || '',
+          website: companyData.website || '',
+        });
+      } catch (error) {
+        console.error('Error loading company:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCompany();
+  }, [router]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsEditing(false);
-    alert('Profil mis à jour avec succès !');
+    if (!company) return;
+
+    setSaving(true);
+    const result = await updateCompanyProfile(company.id, formData);
+    setSaving(false);
+
+    if (result.success) {
+      setIsEditing(false);
+      // Reload company data
+      const updated = await getCurrentCompany();
+      if (updated) setCompany(updated);
+    } else {
+      alert('Erreur: ' + result.error);
+    }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <NavBar role="company" />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -65,14 +121,18 @@ export default function CompanyProfilePage() {
                   <button
                     onClick={() => {
                       setIsEditing(false);
-                      setFormData({
-                        name: initialCompany.name,
-                        sector: initialCompany.sector,
-                        size: initialCompany.size,
-                        contactName: initialCompany.contactName,
-                        contactEmail: initialCompany.contactEmail,
-                        contactPhone: initialCompany.contactPhone,
-                      });
+                      if (company) {
+                        setFormData({
+                          name: company.name || '',
+                          sector: company.sector || '',
+                          size: company.size || '',
+                          contact_name: company.contact_name || '',
+                          contact_email: company.contact_email || '',
+                          contact_phone: company.contact_phone || '',
+                          description: company.description || '',
+                          website: company.website || '',
+                        });
+                      }
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition"
                   >
@@ -80,9 +140,10 @@ export default function CompanyProfilePage() {
                   </button>
                   <button
                     onClick={handleSubmit}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+                    disabled={saving}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition disabled:opacity-50"
                   >
-                    Enregistrer
+                    {saving ? 'Enregistrement...' : 'Enregistrer'}
                   </button>
                 </div>
               )}
@@ -169,9 +230,9 @@ export default function CompanyProfilePage() {
                   Nom et prénom
                 </label>
                 <input
-                  name="contactName"
+                  name="contact_name"
                   type="text"
-                  value={formData.contactName}
+                  value={formData.contact_name}
                   onChange={handleChange}
                   disabled={!isEditing}
                   className={`w-full px-4 py-3 border border-gray-300 rounded-md ${
@@ -189,9 +250,9 @@ export default function CompanyProfilePage() {
                     Email
                   </label>
                   <input
-                    name="contactEmail"
+                    name="contact_email"
                     type="email"
-                    value={formData.contactEmail}
+                    value={formData.contact_email}
                     onChange={handleChange}
                     disabled={!isEditing}
                     className={`w-full px-4 py-3 border border-gray-300 rounded-md ${
@@ -208,9 +269,9 @@ export default function CompanyProfilePage() {
                     Téléphone
                   </label>
                   <input
-                    name="contactPhone"
+                    name="contact_phone"
                     type="tel"
-                    value={formData.contactPhone}
+                    value={formData.contact_phone}
                     onChange={handleChange}
                     disabled={!isEditing}
                     className={`w-full px-4 py-3 border border-gray-300 rounded-md ${

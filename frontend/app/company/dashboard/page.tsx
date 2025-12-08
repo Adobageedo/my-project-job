@@ -1,27 +1,82 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import Badge from '@/components/shared/Badge';
-import CandidateCard from '@/components/candidate/CandidateCard';
-import { jobOffers, applications, candidates } from '@/data';
-import { Briefcase, Users, Eye, Plus, TrendingUp } from 'lucide-react';
+import { 
+  getCurrentCompany, 
+  getCompanyApplications, 
+  getCompanyStats,
+  Company,
+  Application
+} from '@/services/companyService';
+import { getCompanyOffers, JobOffer } from '@/services/offerService';
+import { Briefcase, Users, Eye, Plus, TrendingUp, Loader2 } from 'lucide-react';
 
 export default function CompanyDashboardPage() {
-  // Simuler l'entreprise connectée
-  const companyId = 'comp-1';
-  
-  const companyOffers = jobOffers.filter((offer) => offer.companyId === companyId);
-  const companyApplications = applications.filter((app) => app.companyId === companyId);
-  const recentApplications = companyApplications.slice(0, 5);
-  
-  const stats = {
-    totalOffers: companyOffers.length,
-    activeOffers: companyOffers.filter((o) => o.status === 'active').length,
-    totalApplications: companyApplications.length,
-    pendingReview: companyApplications.filter((a) => a.status === 'reviewing').length,
-  };
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [company, setCompany] = useState<Company | null>(null);
+  const [offers, setOffers] = useState<JobOffer[]>([]);
+  const [recentApplications, setRecentApplications] = useState<Application[]>([]);
+  const [stats, setStats] = useState({
+    totalOffers: 0,
+    activeOffers: 0,
+    totalApplications: 0,
+    pendingReview: 0,
+  });
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // Get current company
+        const companyData = await getCurrentCompany();
+        if (!companyData) {
+          router.push('/login-company');
+          return;
+        }
+        setCompany(companyData);
+
+        // Load offers, applications and stats in parallel
+        const [offersResult, applicationsResult, statsResult] = await Promise.all([
+          getCompanyOffers(companyData.id, { limit: 10 }),
+          getCompanyApplications(companyData.id, { limit: 5 }),
+          getCompanyStats(companyData.id)
+        ]);
+
+        setOffers(offersResult.offers);
+        setRecentApplications(applicationsResult.applications);
+        
+        setStats({
+          totalOffers: statsResult.offers.total,
+          activeOffers: statsResult.offers.byStatus['active'] || 0,
+          totalApplications: statsResult.applications.total,
+          pendingReview: statsResult.applications.byStatus['pending'] || 0,
+        });
+      } catch (error) {
+        console.error('Error loading dashboard:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <NavBar role="company" />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -139,28 +194,44 @@ export default function CompanyDashboardPage() {
                       <td className="px-6 py-4">
                         <div>
                           <div className="font-semibold text-slate-900">
-                            {application.candidate.firstName} {application.candidate.lastName}
+                            {application.candidate?.first_name} {application.candidate?.last_name}
                           </div>
                           <div className="text-sm text-gray-600">
-                            {application.candidate.school}
+                            {application.candidate?.headline || application.candidate?.specialization || '-'}
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-gray-900">
-                          {application.offer.title}
+                          {application.job_offer?.title || '-'}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">
-                        {new Date(application.applicationDate).toLocaleDateString('fr-FR')}
+                        {new Date(application.created_at).toLocaleDateString('fr-FR')}
                       </td>
                       <td className="px-6 py-4">
-                        <Badge status={application.status} />
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          application.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                          application.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                          application.status === 'interview' ? 'bg-purple-100 text-purple-800' :
+                          application.status === 'accepted' ? 'bg-green-100 text-green-800' :
+                          application.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {application.status === 'pending' ? 'En attente' :
+                           application.status === 'in_progress' ? 'En cours' :
+                           application.status === 'interview' ? 'Entretien' :
+                           application.status === 'accepted' ? 'Acceptée' :
+                           application.status === 'rejected' ? 'Refusée' : application.status}
+                        </span>
                       </td>
                       <td className="px-6 py-4">
-                        <button className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+                        <Link 
+                          href={`/company/applications?id=${application.id}`}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                        >
                           Voir profil
-                        </button>
+                        </Link>
                       </td>
                     </tr>
                   ))}
@@ -187,12 +258,7 @@ export default function CompanyDashboardPage() {
 
             <div className="p-6">
               <div className="space-y-4">
-                {companyOffers.slice(0, 3).map((offer) => {
-                  const offerApplications = companyApplications.filter(
-                    (app) => app.offerId === offer.id
-                  );
-
-                  return (
+                {offers.filter(o => o.status === 'active').slice(0, 3).map((offer) => (
                     <div
                       key={offer.id}
                       className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-blue-500 transition"
@@ -202,30 +268,32 @@ export default function CompanyDashboardPage() {
                           {offer.title}
                         </h3>
                         <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span>{offer.location}</span>
+                          <span>{offer.location_city || 'Non précisé'}</span>
                           <span>•</span>
-                          <span>{offer.contractType === 'stage' ? 'Stage' : 'Alternance'}</span>
+                          <span>{offer.contract_type === 'stage' ? 'Stage' : 'Alternance'}</span>
                           <span>•</span>
                           <span>
-                            {offerApplications.length} candidature
-                            {offerApplications.length > 1 ? 's' : ''}
+                            {offer.applications_count} candidature
+                            {offer.applications_count > 1 ? 's' : ''}
                           </span>
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <button className="px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-md transition">
-                          Modifier
-                        </button>
                         <Link
-                          href={`/candidate/offers/${offer.id}`}
+                          href={`/company/offers/${offer.id}`}
+                          className="px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-md transition"
+                        >
+                          Modifier
+                        </Link>
+                        <Link
+                          href={`/company/offers/${offer.id}/applications`}
                           className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition"
                         >
-                          Voir
+                          Candidatures
                         </Link>
                       </div>
                     </div>
-                  );
-                })}
+                ))}
               </div>
             </div>
           </div>

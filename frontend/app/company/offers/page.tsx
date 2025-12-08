@@ -1,64 +1,89 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
-import Badge from '@/components/shared/Badge';
-import { jobOffers, applications } from '@/data';
-import { JobOffer, Application } from '@/types';
+import { getCurrentCompany } from '@/services/companyService';
+import { getCompanyOffers, deleteOffer, JobOffer } from '@/services/offerService';
 import { 
   Plus, 
   Search, 
-  Filter, 
   Eye, 
   Edit3, 
   Trash2, 
-  MoreVertical,
   MapPin,
   Calendar,
   Users,
-  Clock,
   CheckCircle,
   XCircle,
-  AlertCircle,
+  PauseCircle,
   LayoutGrid,
   List,
   ChevronRight,
   Briefcase,
+  Loader2,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 type ViewMode = 'grid' | 'list';
-type OfferFilter = 'all' | 'active' | 'filled' | 'expired';
+type OfferFilter = 'all' | 'active' | 'filled' | 'expired' | 'draft';
 
 export default function CompanyOffersPage() {
-  const companyId = 'comp-1'; // Mock
-  
+  const router = useRouter();
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const [offers, setOffers] = useState<JobOffer[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<OfferFilter>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Charger les offres de l'entreprise
-    const companyOffers = jobOffers.filter(o => o.companyId === companyId);
-    setOffers(companyOffers);
-    setLoading(false);
-  }, []);
+  const loadOffers = async (cId: string) => {
+    const result = await getCompanyOffers(cId);
+    setOffers(result.offers);
+  };
 
-  // Obtenir les candidatures par offre
-  const getOfferApplications = (offerId: string) => {
-    return applications.filter(a => a.offerId === offerId);
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const company = await getCurrentCompany();
+        if (!company) {
+          router.push('/login-company');
+          return;
+        }
+        setCompanyId(company.id);
+        await loadOffers(company.id);
+      } catch (error) {
+        console.error('Error loading offers:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    init();
+  }, [router]);
+
+  const handleDelete = async (offerId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!confirm('Êtes-vous sûr de vouloir supprimer ce brouillon ?')) return;
+    
+    const result = await deleteOffer(offerId);
+    if (result.success && companyId) {
+      await loadOffers(companyId);
+    } else if (result.error) {
+      alert('Erreur: ' + result.error);
+    }
   };
 
   // Filtrer les offres
   const filteredOffers = offers.filter(offer => {
     const matchesSearch = searchTerm === '' ||
       offer.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      offer.location.toLowerCase().includes(searchTerm.toLowerCase());
+      (offer.location_city || '').toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || offer.status === statusFilter;
     
@@ -71,7 +96,7 @@ export default function CompanyOffersPage() {
     active: offers.filter(o => o.status === 'active').length,
     filled: offers.filter(o => o.status === 'filled').length,
     expired: offers.filter(o => o.status === 'expired').length,
-    totalApplications: offers.reduce((acc, o) => acc + getOfferApplications(o.id).length, 0),
+    totalApplications: offers.reduce((acc, o) => acc + (o.applications_count || 0), 0),
   };
 
   const getStatusBadge = (status: JobOffer['status']) => {
@@ -82,8 +107,26 @@ export default function CompanyOffersPage() {
         return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium flex items-center gap-1"><Users className="h-3 w-3" /> Pourvue</span>;
       case 'expired':
         return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium flex items-center gap-1"><XCircle className="h-3 w-3" /> Expirée</span>;
+      case 'draft':
+        return <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium flex items-center gap-1"><PauseCircle className="h-3 w-3" /> Brouillon</span>;
+      case 'paused':
+        return <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium flex items-center gap-1"><PauseCircle className="h-3 w-3" /> En pause</span>;
+      default:
+        return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">{status}</span>;
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <NavBar role="company" />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -195,14 +238,11 @@ export default function CompanyOffersPage() {
           ) : filteredOffers.length > 0 ? (
             viewMode === 'grid' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredOffers.map(offer => {
-                  const offerApps = getOfferApplications(offer.id);
-                  const pendingCount = offerApps.filter(a => a.status === 'pending').length;
-
-                  return (
+                {filteredOffers.map(offer => (
                     <div
                       key={offer.id}
-                      className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition"
+                      onClick={() => router.push(`/company/offers/${offer.id}/applications`)}
+                      className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition cursor-pointer"
                     >
                       <div className="p-6">
                         <div className="flex items-start justify-between mb-4">
@@ -210,7 +250,7 @@ export default function CompanyOffersPage() {
                             <h3 className="font-semibold text-gray-900 mb-1">{offer.title}</h3>
                             <div className="flex items-center gap-2 text-sm text-gray-600">
                               <MapPin className="h-4 w-4" />
-                              {offer.location}
+                              {offer.location_city || 'Non précisé'}
                             </div>
                           </div>
                           {getStatusBadge(offer.status)}
@@ -219,14 +259,17 @@ export default function CompanyOffersPage() {
                         <div className="space-y-2 mb-4">
                           <div className="flex items-center gap-2 text-sm text-gray-600">
                             <Briefcase className="h-4 w-4" />
-                            <span className="capitalize">{offer.contractType}</span>
-                            <span>•</span>
-                            <span>{offer.duration}</span>
+                            <span className="capitalize">{offer.contract_type}</span>
+                            {offer.duration_months && (
+                              <><span>•</span><span>{offer.duration_months} mois</span></>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <Calendar className="h-4 w-4" />
-                            Début: {format(new Date(offer.startDate), 'dd MMM yyyy', { locale: fr })}
-                          </div>
+                          {offer.start_date && (
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <Calendar className="h-4 w-4" />
+                              Début: {format(new Date(offer.start_date), 'dd MMM yyyy', { locale: fr })}
+                            </div>
+                          )}
                         </div>
 
                         {/* Candidatures */}
@@ -234,38 +277,39 @@ export default function CompanyOffersPage() {
                           <div className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-gray-500" />
                             <span className="text-sm text-gray-600">
-                              {offerApps.length} candidature{offerApps.length > 1 ? 's' : ''}
+                              {offer.applications_count} candidature{offer.applications_count > 1 ? 's' : ''}
                             </span>
-                            {pendingCount > 0 && (
-                              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium">
-                                {pendingCount} nouvelle{pendingCount > 1 ? 's' : ''}
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>
 
                       {/* Actions */}
                       <div className="px-6 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-                        <Link
-                          href={`/company/offers/${offer.id}/applications`}
+                        <span
                           className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
                         >
                           Voir les candidatures
                           <ChevronRight className="h-4 w-4" />
-                        </Link>
+                        </span>
                         <div className="flex items-center gap-2">
-                          <button className="p-2 hover:bg-gray-200 rounded-lg transition">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); router.push(`/company/offers/${offer.id}`); }}
+                            className="p-2 hover:bg-gray-200 rounded-lg transition"
+                          >
                             <Edit3 className="h-4 w-4 text-gray-500" />
                           </button>
-                          <button className="p-2 hover:bg-red-100 rounded-lg transition">
-                            <Trash2 className="h-4 w-4 text-gray-500 hover:text-red-600" />
-                          </button>
+                          {offer.status === 'draft' && (
+                            <button 
+                              onClick={(e) => handleDelete(offer.id, e)}
+                              className="p-2 hover:bg-red-100 rounded-lg transition"
+                            >
+                              <Trash2 className="h-4 w-4 text-gray-500 hover:text-red-600" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
-                  );
-                })}
+                ))}
               </div>
             ) : (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -281,53 +325,57 @@ export default function CompanyOffersPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {filteredOffers.map(offer => {
-                      const offerApps = getOfferApplications(offer.id);
-                      const pendingCount = offerApps.filter(a => a.status === 'pending').length;
-
-                      return (
-                        <tr key={offer.id} className="hover:bg-gray-50">
+                    {filteredOffers.map(offer => (
+                        <tr 
+                          key={offer.id} 
+                          onClick={() => router.push(`/company/offers/${offer.id}/applications`)}
+                          className="hover:bg-gray-50 cursor-pointer"
+                        >
                           <td className="px-6 py-4">
                             <div className="font-medium text-gray-900">{offer.title}</div>
-                            <div className="text-sm text-gray-500">{offer.duration}</div>
+                            <div className="text-sm text-gray-500">
+                              {offer.duration_months ? `${offer.duration_months} mois` : '-'}
+                            </div>
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">{offer.location}</td>
+                          <td className="px-6 py-4 text-sm text-gray-600">
+                            {offer.location_city || 'Non précisé'}
+                          </td>
                           <td className="px-6 py-4">
                             <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs capitalize">
-                              {offer.contractType}
+                              {offer.contract_type}
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <span className="text-gray-900 font-medium">{offerApps.length}</span>
-                              {pendingCount > 0 && (
-                                <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
-                                  +{pendingCount}
-                                </span>
-                              )}
-                            </div>
+                            <span className="text-gray-900 font-medium">{offer.applications_count}</span>
                           </td>
                           <td className="px-6 py-4">{getStatusBadge(offer.status)}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
-                              <Link
-                                href={`/company/offers/${offer.id}/applications`}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); router.push(`/company/offers/${offer.id}/applications`); }}
                                 className="p-2 hover:bg-blue-100 rounded-lg transition text-blue-600"
                                 title="Voir les candidatures"
                               >
                                 <Eye className="h-4 w-4" />
-                              </Link>
-                              <button className="p-2 hover:bg-gray-100 rounded-lg transition">
+                              </button>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); router.push(`/company/offers/${offer.id}`); }}
+                                className="p-2 hover:bg-gray-100 rounded-lg transition"
+                              >
                                 <Edit3 className="h-4 w-4 text-gray-500" />
                               </button>
-                              <button className="p-2 hover:bg-red-100 rounded-lg transition">
-                                <Trash2 className="h-4 w-4 text-gray-500 hover:text-red-600" />
-                              </button>
+                              {offer.status === 'draft' && (
+                                <button 
+                                  onClick={(e) => handleDelete(offer.id, e)}
+                                  className="p-2 hover:bg-red-100 rounded-lg transition"
+                                >
+                                  <Trash2 className="h-4 w-4 text-gray-500 hover:text-red-600" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
-                      );
-                    })}
+                    ))}
                   </tbody>
                 </table>
               </div>

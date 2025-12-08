@@ -51,6 +51,8 @@ export interface JobOffer {
   application_url: string | null;
   requires_cover_letter: boolean;
   custom_questions: Array<{ id: string; question: string; required: boolean }>;
+  // Email du responsable hiérarchique (usage interne, non visible par les candidats)
+  manager_email: string | null;
   
   // Status
   status: 'draft' | 'active' | 'paused' | 'expired' | 'filled' | 'cancelled';
@@ -132,9 +134,139 @@ export interface JobOfferCreateData {
   is_featured?: boolean;
   is_urgent?: boolean;
   expires_at?: string;
+  // Email du responsable hiérarchique (usage interne, non visible par les candidats)
+  manager_email?: string;
 }
 
 export type JobOfferUpdateData = Partial<JobOfferCreateData>;
+
+// =====================================================
+// FRONTEND-COMPATIBLE OFFER TYPE (for candidate pages)
+// =====================================================
+
+export interface FrontendJobOffer {
+  id: string;
+  companyId: string;
+  company: {
+    id: string;
+    name: string;
+    logo_url?: string | null;
+    sector?: string | null;
+    size?: string | null;
+    description?: string | null;
+    website?: string | null;
+  };
+  title: string;
+  description: string;
+  missions: string | string[];
+  objectives: string;
+  reporting: string;
+  studyLevel: string[];
+  skills: string[];
+  required_skills: string[];
+  contractType: string;
+  duration: string;
+  startDate: string | null;
+  location: string;
+  salary: string;
+  applicationProcess: string;
+  postedDate: string | null;
+  status: string;
+  requiresCoverLetter: boolean;
+  // Also include raw DB fields for compatibility
+  contract_type?: string;
+  location_city?: string | null;
+  start_date?: string | null;
+  published_at?: string | null;
+  education_level?: string | null;
+  remuneration_min?: number | null;
+  remuneration_max?: number | null;
+  duration_months?: number | null;
+}
+
+/**
+ * Map Supabase job offer to frontend-compatible format
+ */
+function mapOfferToFrontend(dbOffer: JobOffer): FrontendJobOffer {
+  // Format duration
+  const formatDuration = (months?: number | null): string => {
+    if (!months) return '';
+    if (months === 1) return '1 mois';
+    if (months < 12) return `${months} mois`;
+    if (months === 12) return '1 an';
+    const years = Math.floor(months / 12);
+    const remainingMonths = months % 12;
+    if (remainingMonths === 0) return `${years} an${years > 1 ? 's' : ''}`;
+    return `${years} an${years > 1 ? 's' : ''} et ${remainingMonths} mois`;
+  };
+
+  // Format salary
+  const formatSalary = (min?: number | null, max?: number | null, period?: string): string => {
+    if (!min && !max) return '';
+    const periodLabel = period === 'monthly' ? '/mois' : period === 'yearly' ? '/an' : '';
+    if (min && max && min !== max) {
+      return `${min}€ - ${max}€${periodLabel}`;
+    }
+    return `${min || max}€${periodLabel}`;
+  };
+
+  // Format education level for display
+  const formatEducationLevel = (level?: string | null): string[] => {
+    if (!level) return [];
+    // Map database enum to display format
+    const levelMap: Record<string, string> = {
+      'bac': 'Bac',
+      'bac+1': 'Bac+1',
+      'bac+2': 'Bac+2',
+      'bac+3': 'Bac+3 (Licence)',
+      'bac+4': 'Bac+4 (M1)',
+      'bac+5': 'Bac+5 (M2)',
+      'bac+6': 'Bac+6+',
+      'doctorat': 'Doctorat'
+    };
+    return [levelMap[level] || level];
+  };
+
+  return {
+    id: dbOffer.id,
+    companyId: dbOffer.company_id,
+    company: dbOffer.company || {
+      id: dbOffer.company_id,
+      name: 'Entreprise',
+      logo_url: null,
+      sector: null,
+      size: null,
+    },
+    title: dbOffer.title,
+    description: dbOffer.description || '',
+    missions: dbOffer.missions || '',
+    objectives: dbOffer.objectives || '',
+    reporting: '', // Not in DB schema, will be empty
+    studyLevel: formatEducationLevel(dbOffer.education_level),
+    skills: dbOffer.required_skills || [],
+    required_skills: dbOffer.required_skills || [],
+    contractType: dbOffer.contract_type,
+    duration: formatDuration(dbOffer.duration_months),
+    startDate: dbOffer.start_date,
+    location: dbOffer.location_city || '',
+    salary: formatSalary(dbOffer.remuneration_min, dbOffer.remuneration_max, dbOffer.remuneration_period),
+    applicationProcess: dbOffer.application_method === 'platform' 
+      ? 'Postulez directement via cette plateforme' 
+      : 'CV + Lettre de motivation',
+    postedDate: dbOffer.published_at,
+    status: dbOffer.status,
+    requiresCoverLetter: dbOffer.requires_cover_letter ?? false,
+    // Raw DB fields for compatibility
+    contract_type: dbOffer.contract_type,
+    location_city: dbOffer.location_city,
+    start_date: dbOffer.start_date,
+    published_at: dbOffer.published_at,
+    education_level: dbOffer.education_level,
+    remuneration_min: dbOffer.remuneration_min,
+    remuneration_max: dbOffer.remuneration_max,
+    duration_months: dbOffer.duration_months,
+  };
+}
 
 // =====================================================
 // PUBLIC OFFER FUNCTIONS (for candidates)
@@ -224,7 +356,7 @@ export async function searchOffers(
 }
 
 /**
- * Get offer by ID (public)
+ * Get offer by ID (public) - returns raw Supabase data
  */
 export async function getOfferById(id: string): Promise<JobOffer | null> {
   const { data, error } = await supabase
@@ -242,6 +374,15 @@ export async function getOfferById(id: string): Promise<JobOffer | null> {
   }
 
   return data as JobOffer;
+}
+
+/**
+ * Get offer by ID for candidate view - returns frontend-compatible format
+ */
+export async function getOfferForCandidate(id: string): Promise<FrontendJobOffer | null> {
+  const offer = await getOfferById(id);
+  if (!offer) return null;
+  return mapOfferToFrontend(offer);
 }
 
 /**
@@ -559,56 +700,159 @@ export async function duplicateOffer(offerId: string): Promise<{ success: boolea
 // OFFER PARSING (from PDF)
 // =====================================================
 
+interface ParsedJobOfferData {
+  title?: string;
+  description?: string;
+  missions?: string[];
+  objectives?: string;
+  studyLevel?: string[];
+  skills?: string[];
+  contractType?: string;
+  duration?: string;
+  startDate?: string;
+  location?: string;
+  salary?: string;
+}
+
+const normalizeParsedDate = (value?: string): string | undefined => {
+  if (!value) return undefined;
+
+  const trimmed = value.trim();
+  // Already ISO-8601 date
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+
+  return undefined;
+};
+
 /**
- * Parse offer from PDF file
- * Note: This calls the backend API for AI parsing
+ * Parse offer from PDF file using backend AI
  */
 export async function parseOfferFromPdf(
-  companyId: string,
   file: File
-): Promise<{ success: boolean; offer?: Partial<JobOfferCreateData>; error?: string }> {
-  // Upload file first
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${companyId}/${Date.now()}.${fileExt}`;
+): Promise<ParsedJobOfferData> {
+  // Get current session for auth token
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
 
-  const { error: uploadError } = await supabase.storage
-    .from('offer-pdfs')
-    .upload(fileName, file);
+  const formData = new FormData();
+  formData.append('file', file);
 
-  if (uploadError) {
-    return { success: false, error: uploadError.message };
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/ai-parsing/job-offer/upload`, {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || 'Échec du parsing de la fiche de poste');
   }
 
-  const { data: { publicUrl } } = supabase.storage
-    .from('offer-pdfs')
-    .getPublicUrl(fileName);
+  const parsedData = await response.json();
 
-  // Call backend for parsing (this would be your Railway API)
-  try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/offers/parse`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_url: publicUrl })
-    });
+  // Map backend response to frontend format
+  return {
+    title: parsedData.title,
+    description: parsedData.description,
+    missions: parsedData.missions,
+    objectives: parsedData.objectives,
+    studyLevel: parsedData.studyLevels,
+    skills: parsedData.skills,
+    duration: parsedData.duration,
+    startDate: normalizeParsedDate(parsedData.startDate),
+    location: parsedData.location,
+    salary: parsedData.salary,
+  };
+}
 
-    if (!response.ok) {
-      throw new Error('Parsing failed');
+// =====================================================
+// OFFER APPLICATIONS
+// =====================================================
+
+export interface OfferApplication {
+  id: string;
+  job_offer_id: string;
+  candidate_id: string;
+  status: 'pending' | 'in_progress' | 'interview' | 'rejected' | 'accepted' | 'withdrawn';
+  cover_letter: string | null;
+  cv_url: string | null;
+  answers: Record<string, unknown> | null;
+  notes: string | null;
+  rating: number | null;
+  created_at: string;
+  updated_at: string;
+  candidate?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    avatar_url: string | null;
+    headline: string | null;
+    education_level: string | null;
+    specialization: string | null;
+    cv_url: string | null;
+  };
+}
+
+/**
+ * Get applications for a specific offer
+ */
+export async function getOfferApplications(
+  offerId: string
+): Promise<{ applications: OfferApplication[]; total: number }> {
+  const { data, error, count } = await supabase
+    .from('applications')
+    .select(`
+      *,
+      candidate:users!applications_candidate_id_fkey(
+        id, first_name, last_name, email, avatar_url, headline, education_level, specialization, cv_url
+      )
+    `, { count: 'exact' })
+    .eq('job_offer_id', offerId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching offer applications:', error);
+    return { applications: [], total: 0 };
+  }
+
+  return {
+    applications: (data || []) as OfferApplication[],
+    total: count || 0
+  };
+}
+
+/**
+ * Get applications for an offer grouped by status
+ */
+export async function getOfferApplicationsByStatus(
+  offerId: string
+): Promise<Record<string, OfferApplication[]>> {
+  const { applications } = await getOfferApplications(offerId);
+  
+  const grouped: Record<string, OfferApplication[]> = {
+    pending: [],
+    in_progress: [],
+    interview: [],
+    accepted: [],
+    rejected: [],
+    withdrawn: [],
+  };
+
+  applications.forEach(app => {
+    if (grouped[app.status]) {
+      grouped[app.status].push(app);
     }
+  });
 
-    const parsedData = await response.json();
-
-    return {
-      success: true,
-      offer: {
-        ...parsedData,
-        source_type: 'pdf_parsed',
-        source_file_url: publicUrl
-      }
-    };
-  } catch (error) {
-    console.error('Error parsing offer:', error);
-    return { success: false, error: 'Échec du parsing du PDF' };
-  }
+  return grouped;
 }
 
 // =====================================================
@@ -682,11 +926,19 @@ export async function getFilterOptions() {
 // =====================================================
 
 /**
- * Get all offers (alias for searchOffers with no filters)
+ * Get all offers (alias for searchOffers with no filters) - returns raw DB format
  */
 export async function getAllOffers(): Promise<JobOffer[]> {
   const { offers } = await searchOffers({ limit: 100 });
   return offers;
+}
+
+/**
+ * Get all offers for candidate view - returns frontend-compatible format
+ */
+export async function getAllOffersForCandidate(): Promise<FrontendJobOffer[]> {
+  const { offers } = await searchOffers({ limit: 100 });
+  return offers.map(mapOfferToFrontend);
 }
 
 /**

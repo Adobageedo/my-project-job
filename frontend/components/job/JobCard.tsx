@@ -1,14 +1,33 @@
 import Link from 'next/link';
-import { JobOffer } from '@/types';
 import { MapPin, Calendar, Briefcase, Euro } from 'lucide-react';
 
+// Flexible interface that works with both types/JobOffer and services/FrontendJobOffer
+interface JobCardOffer {
+  id: string;
+  title: string;
+  description?: string;
+  company?: {
+    name: string;
+  };
+  contractType?: string;
+  skills?: string[];
+  required_skills?: string[];
+  location?: string;
+  duration?: string;
+  salary?: string;
+}
+
 interface JobCardProps {
-  offer: JobOffer;
+  offer: JobCardOffer;
   viewPath?: string;
 }
 
 export default function JobCard({ offer, viewPath }: JobCardProps) {
   const href = viewPath || `/candidate/offers/${offer.id}`;
+
+  const skills = (offer.skills && offer.skills.length > 0
+    ? offer.skills
+    : offer.required_skills) || [];
 
   return (
     <Link href={href}>
@@ -19,7 +38,7 @@ export default function JobCard({ offer, viewPath }: JobCardProps) {
             <h3 className="text-xl font-light text-slate-900 mb-2 group-hover:text-slate-700 transition">
               {offer.title}
             </h3>
-            <p className="text-slate-600 font-light">{offer.company.name}</p>
+            <p className="text-slate-600 font-light">{offer.company?.name || 'Entreprise'}</p>
           </div>
           <span className="px-3 py-1 bg-slate-100 text-slate-700 text-xs font-light uppercase tracking-wider">
             {offer.contractType === 'stage' ? 'Stage' : 'Alternance'}
@@ -33,7 +52,7 @@ export default function JobCard({ offer, viewPath }: JobCardProps) {
 
         {/* Compétences */}
         <div className="flex flex-wrap gap-2 mb-6">
-          {offer.skills.slice(0, 3).map((skill, index) => (
+          {skills.slice(0, 3).map((skill, index) => (
             <span
               key={index}
               className="px-3 py-1 bg-slate-50 text-slate-600 text-xs font-light"
@@ -41,9 +60,9 @@ export default function JobCard({ offer, viewPath }: JobCardProps) {
               {skill}
             </span>
           ))}
-          {offer.skills.length > 3 && (
+          {skills.length > 3 && (
             <span className="px-3 py-1 bg-slate-50 text-slate-500 text-xs font-light">
-              +{offer.skills.length - 3}
+              +{skills.length - 3}
             </span>
           )}
         </div>
@@ -52,7 +71,7 @@ export default function JobCard({ offer, viewPath }: JobCardProps) {
         <div className="flex flex-wrap gap-4 text-sm text-slate-600 font-light border-t border-slate-100 pt-4">
           <div className="flex items-center">
             <MapPin className="h-4 w-4 mr-1.5" strokeWidth={1.5} />
-            {offer.location}
+            {offer.location || 'Non spécifié'}
           </div>
           <div className="flex items-center">
             <Calendar className="h-4 w-4 mr-1.5" strokeWidth={1.5} />

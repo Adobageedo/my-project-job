@@ -1,13 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
-import { Building2, Mail, Lock, Phone, User, Briefcase, Users, CheckSquare, AlertCircle, Loader2 } from 'lucide-react';
+import { Building2, Mail, Lock, Phone, User, Briefcase, Users, CheckSquare, AlertCircle, Loader2, Shield, CheckCircle } from 'lucide-react';
 import { registerCompany } from '@/services/authService';
 import { useAuth } from '@/contexts/AuthContext';
+import Captcha, { CAPTCHA_SITE_KEYS, CAPTCHA_CONFIG } from '@/components/security/Captcha';
+import { checkPersistentRateLimit, formatWaitTime, clearPersistentRateLimit } from '@/lib/rateLimit';
 
 type CompanyRole = 'company' | 'rh' | 'manager';
 
@@ -16,6 +18,9 @@ export default function RegisterCompanyPage() {
   const { setUserRole } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimitError, setRateLimitError] = useState('');
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const captchaRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     companyName: '',
     siret: '',
@@ -28,6 +33,15 @@ export default function RegisterCompanyPage() {
     confirmPassword: '',
     roles: ['company'] as CompanyRole[],
   });
+
+  const handleCaptchaVerify = (token: string) => {
+    setCaptchaToken(token);
+    setRateLimitError('');
+  };
+
+  const handleCaptchaExpire = () => {
+    setCaptchaToken(null);
+  };
 
   const handleRoleToggle = (role: CompanyRole) => {
     const currentRoles = formData.roles;
@@ -49,6 +63,25 @@ export default function RegisterCompanyPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setRateLimitError('');
+
+    // Vérification du rate limit côté client
+    const rateCheck = checkPersistentRateLimit('register-company', {
+      maxAttempts: 5,
+      windowMs: 60 * 60 * 1000, // 1 hour
+      lockoutMs: 30 * 60 * 1000, // 30 minutes lockout
+    });
+
+    if (!rateCheck.allowed) {
+      setRateLimitError(`Trop de tentatives. Réessayez dans ${formatWaitTime(rateCheck.waitMs)}.`);
+      return;
+    }
+
+    // Vérification du captcha (si activé)
+    if (CAPTCHA_CONFIG.enabled && !captchaToken) {
+      setRateLimitError('Veuillez compléter la vérification de sécurité.');
+      return;
+    }
 
     // Validation
     if (formData.password !== formData.confirmPassword) {
@@ -69,7 +102,7 @@ export default function RegisterCompanyPage() {
     setIsLoading(true);
 
     try {
-      // Utiliser le service d'authentification
+      // Utiliser le service d'authentification avec le captcha token
       await registerCompany(formData.contactEmail, formData.password, {
         companyName: formData.companyName,
         siret: formData.siret,
@@ -78,7 +111,11 @@ export default function RegisterCompanyPage() {
         contactName: formData.contactName,
         contactPhone: formData.contactPhone,
         roles: formData.roles,
+        captchaToken,
       });
+
+      // Inscription réussie - nettoyer le rate limit
+      clearPersistentRateLimit('register-company');
 
       // Enregistrer le rôle dans le contexte
       setUserRole('company');
@@ -88,7 +125,14 @@ export default function RegisterCompanyPage() {
 
     } catch (err: unknown) {
       console.error('Erreur inscription:', err);
-      setError((err as Error).message || 'Une erreur est survenue lors de l\'inscription');
+      const errorMessage = (err as Error).message || '';
+      if (errorMessage.includes('rate limit') || errorMessage.includes('too many')) {
+        setRateLimitError('Trop de tentatives. Veuillez patienter avant de réessayer.');
+      } else {
+        setError(errorMessage || 'Une erreur est survenue lors de l\'inscription');
+      }
+      // Reset captcha on error
+      setCaptchaToken(null);
       setIsLoading(false);
     }
   };
@@ -437,26 +481,58 @@ export default function RegisterCompanyPage() {
                 <input
                   id="terms"
                   type="checkbox"
-                  className="h-4 w-4 mt-1 text-blue-600 rounded"
+                  className="h-4 w-4 mt-1 text-purple-600 rounded"
                   required
                 />
                 <label htmlFor="terms" className="ml-2 text-sm text-gray-600">
                   J'accepte les{' '}
-                  <a href="#" className="text-blue-600 hover:text-blue-700">
+                  <Link href="/legal/cgu" className="text-purple-600 hover:text-purple-700">
                     conditions générales d'utilisation
-                  </a>{' '}
+                  </Link>{' '}
                   et la{' '}
-                  <a href="#" className="text-blue-600 hover:text-blue-700">
+                  <Link href="/legal/privacy" className="text-purple-600 hover:text-purple-700">
                     politique de confidentialité
-                  </a>
+                  </Link>
                 </label>
               </div>
+
+              {/* Captcha (si activé) */}
+              {CAPTCHA_CONFIG.enabled && (
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
+                    <Shield className="h-4 w-4" />
+                    <span>Vérification de sécurité</span>
+                  </div>
+                  <div ref={captchaRef}>
+                    <Captcha
+                      siteKey={CAPTCHA_SITE_KEYS.hcaptcha}
+                      onVerify={handleCaptchaVerify}
+                      onExpire={handleCaptchaExpire}
+                      onError={(err) => setRateLimitError(`Erreur captcha: ${err}`)}
+                    />
+                  </div>
+                  {captchaToken && (
+                    <div className="mt-2 flex items-center gap-2 text-green-600 text-sm">
+                      <CheckCircle className="h-4 w-4" />
+                      <span>Vérification réussie</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Rate limit error */}
+              {rateLimitError && (
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg flex items-center gap-2 text-orange-700">
+                  <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                  <span className="text-sm">{rateLimitError}</span>
+                </div>
+              )}
 
               {/* Bouton submit */}
               <button
                 type="submit"
-                disabled={isLoading}
-                className="w-full py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                disabled={isLoading || (CAPTCHA_CONFIG.enabled && !captchaToken)}
+                className="w-full py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>

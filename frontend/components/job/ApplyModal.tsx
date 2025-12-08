@@ -15,14 +15,30 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
-import { JobOffer, SavedCV } from '@/types';
+import { SavedCV } from '@/types';
 import { CVSelector } from '../cv/CVManager';
 import { uploadCV, createApplication } from '@/services/candidateService';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
+// Flexible interface for offer that works with both types/JobOffer and services/FrontendJobOffer
+interface ApplyModalOffer {
+  id: string;
+  title: string;
+  company?: {
+    id?: string;
+    name: string;
+  };
+  companyId?: string;
+  location?: string;
+  contractType?: string;
+  startDate?: string | null;
+  duration?: string;
+  requiresCoverLetter?: boolean;
+}
+
 interface ApplyModalProps {
-  offer: JobOffer;
+  offer: ApplyModalOffer;
   candidateId: string;
   savedCVs: SavedCV[];
   defaultCVId?: string;
@@ -120,15 +136,37 @@ export function ApplyModal({
       return;
     }
 
+    // Vérifier si la lettre de motivation est obligatoire
+    if (offer.requiresCoverLetter && !coverLetter?.trim()) {
+      setError('La lettre de motivation est obligatoire pour cette offre');
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
     try {
-      await createApplication({
+      // Get companyId from offer (either from company.id or companyId property)
+      const companyId = offer.company?.id || offer.companyId;
+      if (!companyId) {
+        throw new Error('Company ID is missing from offer');
+      }
+
+      // Get the selected CV URL to store with the application
+      const selectedCV = savedCVs.find(cv => cv.id === selectedCVId);
+      const cvUrl = selectedCV?.url;
+
+      const result = await createApplication(
         candidateId,
-        offerId: offer.id,
-        coverLetter: coverLetter || undefined,
-      });
+        offer.id,
+        companyId,
+        coverLetter || undefined,
+        cvUrl
+      );
+
+      if (!result.success) {
+        throw new Error(result.error || 'Erreur lors de l\'envoi de la candidature');
+      }
 
       setStep('success');
       setTimeout(() => {
@@ -175,16 +213,20 @@ export function ApplyModal({
             <div className="flex items-center gap-4 text-sm text-gray-600">
               <div className="flex items-center gap-1">
                 <Building2 className="h-4 w-4" />
-                {offer.company.name}
+                {offer.company?.name || 'Entreprise'}
               </div>
-              <div className="flex items-center gap-1">
-                <MapPin className="h-4 w-4" />
-                {offer.location}
-              </div>
-              <div className="flex items-center gap-1">
-                <Calendar className="h-4 w-4" />
-                {offer.duration}
-              </div>
+              {offer.location && (
+                <div className="flex items-center gap-1">
+                  <MapPin className="h-4 w-4" />
+                  {offer.location}
+                </div>
+              )}
+              {offer.duration && (
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-4 w-4" />
+                  {offer.duration}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -309,11 +351,23 @@ export function ApplyModal({
           {step === 'cover-letter' && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  Lettre de motivation (optionnel)
+                <h3 className="text-lg font-medium text-gray-900 mb-2 flex items-center gap-2">
+                  Lettre de motivation
+                  {offer.requiresCoverLetter ? (
+                    <span className="text-xs font-medium px-2 py-0.5 bg-red-100 text-red-700 rounded-full">
+                      Obligatoire
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                      Optionnel
+                    </span>
+                  )}
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">
-                  Personnalisez votre candidature avec un message pour le recruteur
+                  {offer.requiresCoverLetter 
+                    ? 'Cette offre requiert une lettre de motivation pour postuler'
+                    : 'Personnalisez votre candidature avec un message pour le recruteur'
+                  }
                 </p>
 
                 {selectedCV && (
@@ -329,7 +383,11 @@ export function ApplyModal({
                   value={coverLetter}
                   onChange={e => setCoverLetter(e.target.value)}
                   placeholder="Bonjour,&#10;&#10;Je suis très intéressé(e) par cette opportunité...&#10;&#10;Cordialement,"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${
+                    offer.requiresCoverLetter && !coverLetter?.trim() 
+                      ? 'border-amber-300 bg-amber-50' 
+                      : 'border-gray-300'
+                  }`}
                   rows={8}
                 />
                 <p className="text-sm text-gray-400 mt-2">

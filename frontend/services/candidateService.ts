@@ -98,6 +98,25 @@ export interface CandidateUpdateData {
   onboarding_completed?: boolean;
 }
 
+// Map UI study level values (e.g. L3, M1, M2, MBA or bac+X) to Supabase enum education_level
+const mapStudyLevelToEducationEnum = (level?: string | null): string | undefined => {
+  if (!level) return undefined;
+
+  switch (level) {
+    case 'L3':
+      return 'bac+3';
+    case 'M1':
+      return 'bac+4';
+    case 'M2':
+      return 'bac+5';
+    case 'MBA':
+      return 'bac+6';
+    default:
+      // Assume it's already one of: 'bac','bac+1',...,'bac+6','doctorat'
+      return level;
+  }
+};
+
 // =====================================================
 // SERVICE FUNCTIONS
 // =====================================================
@@ -128,6 +147,12 @@ export async function getCurrentCandidate(): Promise<Candidate | null> {
  * Get candidate by ID
  */
 export async function getCandidateById(id: string): Promise<Candidate | null> {
+  // Validate ID is a string
+  if (typeof id !== 'string' || !id) {
+    console.error('getCandidateById: Invalid ID provided:', id);
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('users')
     .select('*')
@@ -150,9 +175,14 @@ export async function updateCandidateProfile(
   id: string,
   updates: CandidateUpdateData
 ): Promise<{ success: boolean; error?: string }> {
+  const mappedUpdates: CandidateUpdateData = {
+    ...updates,
+    education_level: mapStudyLevelToEducationEnum(updates.education_level),
+  };
+
   const { error } = await supabase
     .from('users')
-    .update(updates)
+    .update(mappedUpdates)
     .eq('id', id)
     .eq('role', 'candidate');
 
@@ -195,7 +225,7 @@ export async function completeOnboarding(
       last_name: data.lastName,
       phone: data.phone || null,
       institution: data.school || null,
-      education_level: data.studyLevel || null,
+      education_level: mapStudyLevelToEducationEnum(data.studyLevel),
       specialization: data.specialization || null,
       alternance_rhythm: data.alternanceRhythm || null,
       available_from: data.availableFrom || null,
@@ -484,10 +514,33 @@ export async function applyToOffer(
   jobOfferId: string,
   companyId: string,
   coverLetter?: string,
+  cvUrl?: string,
   customAnswers?: Record<string, unknown>
 ): Promise<{ success: boolean; applicationId?: string; error?: string }> {
-  // Get current CV snapshot
-  const candidate = await getCandidateById(candidateId);
+  // Validate UUIDs are strings
+  if (typeof candidateId !== 'string' || !candidateId) {
+    console.error('Invalid candidateId:', candidateId);
+    return { success: false, error: 'ID candidat invalide' };
+  }
+  if (typeof jobOfferId !== 'string' || !jobOfferId) {
+    console.error('Invalid jobOfferId:', jobOfferId);
+    return { success: false, error: 'ID offre invalide' };
+  }
+  if (typeof companyId !== 'string' || !companyId) {
+    console.error('Invalid companyId:', companyId);
+    return { success: false, error: 'ID entreprise invalide' };
+  }
+
+  // Use provided CV URL or fallback to candidate's default CV
+  let cvSnapshotUrl: string | null = cvUrl || null;
+  if (!cvSnapshotUrl) {
+    try {
+      const candidate = await getCandidateById(candidateId);
+      cvSnapshotUrl = candidate?.cv_url || null;
+    } catch (e) {
+      console.warn('Could not get candidate CV snapshot:', e);
+    }
+  }
   
   const { data, error } = await supabase
     .from('applications')
@@ -497,12 +550,13 @@ export async function applyToOffer(
       company_id: companyId,
       cover_letter: coverLetter,
       custom_answers: customAnswers || {},
-      cv_snapshot_url: candidate?.cv_url
+      cv_snapshot_url: cvSnapshotUrl
     })
     .select('id')
     .single();
 
   if (error) {
+    console.error('Application insert error:', error);
     if (error.code === '23505') {
       return { success: false, error: 'Vous avez déjà postulé à cette offre' };
     }
@@ -593,7 +647,7 @@ export async function getDefaultCV(userId: string): Promise<SavedCV | null> {
     .select('*')
     .eq('user_id', userId)
     .eq('is_default', true)
-    .single();
+    .maybeSingle();
 
   if (error || !data) {
     // Try to get any CV if no default
@@ -603,7 +657,7 @@ export async function getDefaultCV(userId: string): Promise<SavedCV | null> {
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
     
     if (!anyCV) return null;
     

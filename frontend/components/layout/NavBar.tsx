@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Building2, User, LayoutDashboard, LogOut, Briefcase, Bookmark, Search, Bell, ChevronDown, FileText, Home } from 'lucide-react';
+import { Building2, User, LayoutDashboard, LogOut, Briefcase, Bookmark, Search, Bell, ChevronDown, FileText, Home, Menu, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface NavBarProps {
@@ -13,7 +13,10 @@ interface NavBarProps {
 export default function NavBar({ role: propRole }: NavBarProps) {
   const pathname = usePathname();
   const [showDropdown, setShowDropdown] = useState(false);
+  const [showLoginDropdown, setShowLoginDropdown] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const loginDropdownRef = useRef<HTMLDivElement>(null);
   const { role: authRole, logout, isLoading } = useAuth();
   
   // Utiliser le rôle du contexte si disponible, sinon celui passé en prop
@@ -22,11 +25,14 @@ export default function NavBar({ role: propRole }: NavBarProps) {
   const isActive = (path: string) => pathname === path;
   const isActivePrefix = (prefix: string) => pathname.startsWith(prefix);
 
-  // Fermer le dropdown quand on clique ailleurs
+  // Fermer les dropdowns quand on clique ailleurs
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowDropdown(false);
+      }
+      if (loginDropdownRef.current && !loginDropdownRef.current.contains(event.target as Node)) {
+        setShowLoginDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -43,19 +49,67 @@ export default function NavBar({ role: propRole }: NavBarProps) {
             <span className="text-xl font-light text-slate-900 tracking-wide">FinanceStages</span>
           </Link>
 
-          {/* Navigation */}
-          <div className="flex items-center space-x-2">
+          {/* Navigation Desktop */}
+          <div className="hidden md:flex items-center space-x-2">
             {!role && (
               <>
+                {/* Lien vers les offres pour visiteurs */}
                 <Link
-                  href="/login-candidate"
-                  className="px-5 py-2 text-slate-700 hover:text-slate-900 transition font-light"
+                  href="/candidate/offers"
+                  className={`px-4 py-2 transition font-light ${
+                    isActivePrefix('/candidate/offers')
+                      ? 'text-slate-900 border-b-2 border-slate-900'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
-                  Connexion
+                  Offres
                 </Link>
+
+                {/* Dropdown Connexion */}
+                <div className="relative" ref={loginDropdownRef}>
+                  <button
+                    onClick={() => setShowLoginDropdown(!showLoginDropdown)}
+                    className="flex items-center px-5 py-2 text-slate-700 hover:text-slate-900 transition font-light"
+                  >
+                    Connexion
+                    <ChevronDown className={`h-4 w-4 ml-1 transition-transform ${showLoginDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {showLoginDropdown && (
+                    <div className="absolute top-full right-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                      <Link
+                        href="/login-candidate"
+                        onClick={() => setShowLoginDropdown(false)}
+                        className="flex items-center px-4 py-3 hover:bg-gray-50 transition"
+                      >
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                          <User className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">Candidat</p>
+                          <p className="text-xs text-gray-500">Trouvez votre stage ou alternance</p>
+                        </div>
+                      </Link>
+                      <Link
+                        href="/login-company"
+                        onClick={() => setShowLoginDropdown(false)}
+                        className="flex items-center px-4 py-3 hover:bg-gray-50 transition"
+                      >
+                        <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center mr-3">
+                          <Building2 className="h-5 w-5 text-purple-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">Entreprise</p>
+                          <p className="text-xs text-gray-500">Publiez vos offres</p>
+                        </div>
+                      </Link>
+                    </div>
+                  )}
+                </div>
+
                 <Link
                   href="/register/candidate"
-                  className="px-6 py-2.5 bg-slate-900 text-white hover:bg-slate-800 transition font-light"
+                  className="px-6 py-2.5 bg-slate-900 text-white hover:bg-slate-800 transition font-light rounded-lg"
                 >
                   S'inscrire
                 </Link>
@@ -280,8 +334,215 @@ export default function NavBar({ role: propRole }: NavBarProps) {
               </button>
             )}
           </div>
+
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+            className="md:hidden p-2 text-slate-600 hover:text-slate-900 transition"
+          >
+            {showMobileMenu ? (
+              <X className="h-6 w-6" />
+            ) : (
+              <Menu className="h-6 w-6" />
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Mobile menu */}
+      {showMobileMenu && (
+        <div className="md:hidden border-t border-[#e8e4dc] bg-[#f5f3ef]">
+          <div className="px-4 py-4 space-y-2">
+            {!role && (
+              <>
+                <Link
+                  href="/candidate/offers"
+                  onClick={() => setShowMobileMenu(false)}
+                  className="block px-4 py-3 text-slate-700 hover:bg-white rounded-lg transition"
+                >
+                  Voir les offres
+                </Link>
+                <div className="border-t border-[#e8e4dc] my-2" />
+                <Link
+                  href="/login-candidate"
+                  onClick={() => setShowMobileMenu(false)}
+                  className="flex items-center px-4 py-3 text-slate-700 hover:bg-white rounded-lg transition"
+                >
+                  <User className="h-5 w-5 mr-3 text-blue-600" />
+                  Connexion Candidat
+                </Link>
+                <Link
+                  href="/login-company"
+                  onClick={() => setShowMobileMenu(false)}
+                  className="flex items-center px-4 py-3 text-slate-700 hover:bg-white rounded-lg transition"
+                >
+                  <Building2 className="h-5 w-5 mr-3 text-purple-600" />
+                  Connexion Entreprise
+                </Link>
+                <div className="border-t border-[#e8e4dc] my-2" />
+                <Link
+                  href="/register/candidate"
+                  onClick={() => setShowMobileMenu(false)}
+                  className="block px-4 py-3 bg-slate-900 text-white text-center rounded-lg font-medium"
+                >
+                  S'inscrire
+                </Link>
+              </>
+            )}
+
+            {role === 'candidate' && (
+              <>
+                <Link
+                  href="/candidate"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/candidate') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Accueil
+                </Link>
+                <Link
+                  href="/candidate/offers"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActivePrefix('/candidate/offers') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Offres
+                </Link>
+                <Link
+                  href="/candidate/applications"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/candidate/applications') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Candidatures
+                </Link>
+                <Link
+                  href="/candidate/saved"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/candidate/saved') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Offres sauvegardées
+                </Link>
+                <Link
+                  href="/candidate/profile"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/candidate/profile') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Profil
+                </Link>
+                <div className="border-t border-[#e8e4dc] my-2" />
+                <button
+                  onClick={() => { logout(); setShowMobileMenu(false); }}
+                  className="w-full px-4 py-3 text-left text-red-600 hover:bg-white rounded-lg transition"
+                >
+                  Déconnexion
+                </button>
+              </>
+            )}
+
+            {role === 'company' && (
+              <>
+                <Link
+                  href="/company/dashboard"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/company/dashboard') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  href="/company/offers"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActivePrefix('/company/offers') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Mes offres
+                </Link>
+                <Link
+                  href="/company/offers/new"
+                  onClick={() => setShowMobileMenu(false)}
+                  className="block px-4 py-3 bg-slate-900 text-white text-center rounded-lg font-medium"
+                >
+                  + Nouvelle offre
+                </Link>
+                <Link
+                  href="/company/profile"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/company/profile') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Profil entreprise
+                </Link>
+                <div className="border-t border-[#e8e4dc] my-2" />
+                <button
+                  onClick={() => { logout(); setShowMobileMenu(false); }}
+                  className="w-full px-4 py-3 text-left text-red-600 hover:bg-white rounded-lg transition"
+                >
+                  Déconnexion
+                </button>
+              </>
+            )}
+
+            {role === 'admin' && (
+              <>
+                <Link
+                  href="/admin/dashboard"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/admin/dashboard') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  href="/admin/companies"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/admin/companies') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Entreprises
+                </Link>
+                <Link
+                  href="/admin/users"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/admin/users') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Utilisateurs
+                </Link>
+                <Link
+                  href="/admin/offers"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`block px-4 py-3 rounded-lg transition ${
+                    isActive('/admin/offers') ? 'bg-white text-slate-900 font-medium' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Offres
+                </Link>
+                <div className="border-t border-[#e8e4dc] my-2" />
+                <button
+                  onClick={() => { logout(); setShowMobileMenu(false); }}
+                  className="w-full px-4 py-3 text-left text-red-600 hover:bg-white rounded-lg transition"
+                >
+                  Déconnexion
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
