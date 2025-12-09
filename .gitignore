@@ -110,3 +110,4 @@ coverage/
 coverage.xml
 pytestcache/
 *.pid
+.vercel

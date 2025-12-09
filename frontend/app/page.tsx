@@ -31,8 +31,7 @@ export default function Home() {
       <NavBar />
 
       {/* Hero Section */}
-      <section className="relative bg-[#f5f3ef] py-32 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#f5f3ef] via-[#faf9f7] to-[#f5f3ef] opacity-70"></div>
+      <section className="relative py-24 bg-white overflow-hidden">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-4xl mx-auto">
             <h1 className="text-6xl md:text-7xl font-light text-slate-900 mb-8 leading-tight">
@@ -65,45 +64,46 @@ export default function Home() {
       </section>
 
       {/* Alternance & Stage Banner */}
-      <section className="bg-gradient-to-r from-blue-600 to-blue-700 py-12">
+      <section className="py-24 bg-[#f5f3ef]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
             <div className="flex items-center gap-6">
-              <div className="p-4 bg-white/10 rounded-2xl">
-                <GraduationCap className="h-12 w-12 text-white" strokeWidth={1.5} />
+              <div className="p-4 bg-white/50 rounded-2xl">
+                <GraduationCap className="h-12 w-12 text-gray-900" strokeWidth={1.5} />
               </div>
               <div>
-                <h2 className="text-2xl md:text-3xl font-light text-white mb-2">
+                <h2 className="text-2xl md:text-3xl font-light text-gray-900 mb-2">
                   Recrutez vos alternants et stagiaires en 3 clics
                 </h2>
-                <p className="text-blue-100 font-light">
+                <p className="text-gray-700 font-light">
                   Spécialistes du recrutement de profils juniors en finance d'entreprise et de marché
                 </p>
               </div>
             </div>
+
             <div className="flex gap-4">
               <Link
                 href="/register/company"
-                className="px-8 py-4 bg-white text-blue-600 hover:bg-blue-50 font-medium transition inline-flex items-center gap-2 rounded-lg"
+                className="px-8 py-4 bg-white text-gray-900 hover:bg-gray-100 font-medium transition inline-flex items-center gap-2 rounded-lg"
               >
                 <Zap className="h-5 w-5" />
                 Publier une offre
               </Link>
             </div>
           </div>
-          
+
           {/* Quick benefits */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10 pt-10 border-t border-white/20">
-            <div className="flex items-center gap-3 text-white">
-              <CheckCircle className="h-6 w-6 text-blue-200" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10 pt-10 border-t border-gray-300/50">
+            <div className="flex items-center gap-3 text-gray-900">
+              <CheckCircle className="h-6 w-6 text-gray-700" />
               <span className="font-light">Profils pré-qualifiés des meilleures écoles</span>
             </div>
-            <div className="flex items-center gap-3 text-white">
-              <Clock className="h-6 w-6 text-blue-200" />
+            <div className="flex items-center gap-3 text-gray-900">
+              <Clock className="h-6 w-6 text-gray-700" />
               <span className="font-light">Recrutement en moins de 2 semaines</span>
             </div>
-            <div className="flex items-center gap-3 text-white">
-              <Award className="h-6 w-6 text-blue-200" />
+            <div className="flex items-center gap-3 text-gray-900">
+              <Award className="h-6 w-6 text-gray-700" />
               <span className="font-light">Accompagnement personnalisé</span>
             </div>
           </div>
