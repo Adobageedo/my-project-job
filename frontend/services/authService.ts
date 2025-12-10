@@ -113,11 +113,16 @@ export async function registerCandidate(
 ): Promise<AuthUser> {
   try {
     // 1. Créer le compte auth
+    const redirectUrl = process.env.NEXT_PUBLIC_SITE_URL 
+      ? `${process.env.NEXT_PUBLIC_SITE_URL}/candidate/onboarding`
+      : 'http://localhost:3000/candidate/onboarding';
+    
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { role: 'candidate' },
+        emailRedirectTo: redirectUrl,
       },
     });
 

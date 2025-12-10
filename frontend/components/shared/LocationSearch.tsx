@@ -4,6 +4,14 @@ import { useState, useEffect, useRef } from 'react';
 import { Search, MapPin, ChevronDown, X, Check } from 'lucide-react';
 import { Location, FRENCH_REGIONS, createLocationFromCity } from '@/types';
 
+// Re-export depuis le nouveau composant unifié
+export { 
+  LocationAutocomplete,
+  MultiLocationAutocomplete,
+  LocationFilterDropdown,
+} from './LocationAutocomplete';
+export type { LocationHierarchy, LocationSearchResult } from '@/data/locations';
+
 interface LocationSearchProps {
   value?: Location;
   onChange: (location: Location | undefined) => void;

@@ -2,7 +2,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { login as authLogin, logout as authLogout } from '@/services/authService';
@@ -28,6 +28,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isRedirecting: boolean;
   role: UserRole;
   
   // Auth actions
@@ -122,10 +123,12 @@ const ROLE_DASHBOARDS: Record<string, string> = {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   // Auth state
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   // Candidate state
   const [candidate, setCandidate] = useState<Candidate | null>(null);
@@ -301,9 +304,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(AUTH_STORAGE_KEY);
       clearCandidate();
       setUser(null);
+      setIsRedirecting(false);
       router.push('/');
     } catch (error) {
       console.error('Erreur déconnexion:', error);
+      setIsRedirecting(false);
     }
   };
 
@@ -326,13 +331,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     const initAuth = async () => {
       try {
-        // Load from localStorage first for immediate UI
+        // Load from localStorage first for immediate UI (évite le flash)
         const stored = localStorage.getItem(AUTH_STORAGE_KEY);
         const storedCandidate = localStorage.getItem(CANDIDATE_STORAGE_KEY);
         
         if (stored) {
           const parsedUser = JSON.parse(stored) as AuthUser;
-          if (isMounted) setUser(parsedUser);
+          if (isMounted) {
+            setUser(parsedUser);
+            // Si on a des données en cache, on peut arrêter le loading immédiatement
+            // La vérification de session se fera en arrière-plan
+            setIsLoading(false);
+          }
           
           // Load candidate from cache first
           if (parsedUser.role === 'candidate' && storedCandidate) {
@@ -421,32 +431,98 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isLoading) return;
 
     const checkRouteAccess = () => {
+      const isLoginRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
       const isPublicRoute = PUBLIC_ROUTES.some(route =>
         pathname === route || pathname.startsWith(route + '/')
       );
 
       // Dynamic offer routes are public
       if (pathname.startsWith('/candidate/offers/')) {
+        setIsRedirecting(false);
+        return;
+      }
+
+      // Pages de login/register - pas de redirection si non connecté
+      if (isLoginRoute && !user) {
+        setIsRedirecting(false);
+        return;
+      }
+
+      // Routes publiques - pas de redirection
+      if (isPublicRoute && !user) {
+        setIsRedirecting(false);
+        return;
+      }
+
+      // Si l'utilisateur est connecté et sur une page de login → rediriger vers returnUrl ou dashboard
+      if (user && isLoginRoute) {
+        // Lire le returnUrl depuis les paramètres de l'URL
+        const returnUrlParam = searchParams?.get('returnUrl');
+        const targetUrl = returnUrlParam ? decodeURIComponent(returnUrlParam) : null;
+        const dashboard = ROLE_DASHBOARDS[user.role || 'candidate'];
+        
+        console.log('[AuthContext] User logged in on login page', { targetUrl, dashboard, role: user.role });
+        setIsRedirecting(true);
+        
+        // Pour les candidats, vérifier l'onboarding d'abord
+        if (user.role === 'candidate') {
+          const needsOnboarding = !candidate?.firstName && !isCandidateLoading;
+          if (needsOnboarding) {
+            // Préserver le returnUrl pour après l'onboarding
+            const onboardingUrl = targetUrl 
+              ? `/candidate/onboarding?returnUrl=${encodeURIComponent(targetUrl)}`
+              : '/candidate/onboarding';
+            router.replace(onboardingUrl);
+            return;
+          }
+        }
+        
+        // Rediriger vers l'URL demandée ou le dashboard par défaut
+        // Vérifier que l'URL est valide pour le rôle de l'utilisateur
+        if (targetUrl) {
+          const userRoutes = ROLE_ROUTES[user.role || 'candidate'] || [];
+          const canAccessTarget = userRoutes.some(route => 
+            targetUrl === route || targetUrl.startsWith(route + '/')
+          );
+          
+          console.log('[AuthContext] Checking target access', { targetUrl, canAccessTarget, userRoutes });
+          
+          if (canAccessTarget) {
+            router.replace(targetUrl);
+            return;
+          }
+        }
+        
+        router.replace(dashboard || '/');
         return;
       }
 
       if (isPublicRoute) return;
 
-      // Not authenticated
       if (!user) {
+        setIsRedirecting(true);
+        const returnUrl = encodeURIComponent(pathname);
         if (pathname.startsWith('/candidate')) {
-          router.push('/login-candidate');
+          router.replace(`/login-candidate?returnUrl=${returnUrl}`);
         } else if (pathname.startsWith('/company')) {
-          router.push('/login-company');
+          router.replace(`/login-company?returnUrl=${returnUrl}`);
         } else if (pathname.startsWith('/admin')) {
-          router.push('/login-admin');
-        } else {
-          router.push('/login-candidate');
+          router.replace(`/login-admin?returnUrl=${returnUrl}`);
         }
         return;
       }
 
-      // Check role-based access
+      if (user.role === 'candidate') {
+        const needsOnboarding = !candidate?.firstName;
+        const isOnboardingRoute = pathname === '/candidate/onboarding' || pathname.startsWith('/candidate/onboarding/');
+
+        if (needsOnboarding && !isOnboardingRoute && !isCandidateLoading) {
+          setIsRedirecting(true);
+          router.replace('/candidate/onboarding');
+          return;
+        }
+      }
+
       if (user.role) {
         const allowedRoutes = ROLE_ROUTES[user.role] || [];
         const hasAccess = allowedRoutes.some(route =>
@@ -454,16 +530,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         );
 
         if (!hasAccess) {
+          // Vérifier si c'est un accès cross-role (candidat → company ou vice versa)
+          const isCandidateTryingCompany = user.role === 'candidate' && pathname.startsWith('/company');
+          const isCompanyTryingCandidate = user.role === 'company' && pathname.startsWith('/candidate');
+          
+          if (isCandidateTryingCompany || isCompanyTryingCandidate) {
+            setIsRedirecting(true);
+            const expectedRole = isCandidateTryingCompany ? 'company' : 'candidate';
+            router.replace(`/role-mismatch?expected=${expectedRole}&returnUrl=${encodeURIComponent(pathname)}`);
+            return;
+          }
+          
+          // Sinon rediriger vers le dashboard
+          setIsRedirecting(true);
           const dashboard = ROLE_DASHBOARDS[user.role];
           if (dashboard && pathname !== dashboard) {
-            router.push(dashboard);
+            router.replace(dashboard);
           }
+        } else {
+          // L'utilisateur a accès à cette page, arrêter le loading
+          setIsRedirecting(false);
         }
       }
     };
 
     checkRouteAccess();
-  }, [pathname, user, isLoading, router]);
+  }, [pathname, searchParams, user, candidate, isCandidateLoading, isLoading, router]);
 
   // Realtime subscription for candidate updates
   useEffect(() => {
@@ -501,6 +593,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        isRedirecting,
         role: user?.role || null,
         login,
         logout,
@@ -515,6 +608,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearCandidate,
       }}
     >
+      {/* Overlay de loading par-dessus la page actuelle pendant les redirections */}
+      {isRedirecting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+          <div className="text-center">
+            <svg className="h-10 w-10 text-blue-600 animate-spin mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          </div>
+        </div>
+      )}
       {children}
     </AuthContext.Provider>
   );

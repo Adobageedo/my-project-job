@@ -1,12 +1,31 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
-  constructor(private supabase: SupabaseService) {}
+  private readonly logger = new Logger(SupabaseAuthGuard.name);
+
+  constructor(
+    private supabase: SupabaseService,
+    private config: ConfigService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
+    const isDev = this.config.get<string>('NODE_ENV') === 'development';
+
+    // En mode dev, bypass l'authentification
+    if (false) {
+      this.logger.warn('⚠️ DEV MODE: Authentication bypassed');
+      request.user = {
+        id: 'dev-user-id',
+        email: 'dev@example.com',
+        roles: ['candidate'],
+      };
+      return true;
+    }
+
     const authHeader = request.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {

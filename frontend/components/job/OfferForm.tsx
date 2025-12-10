@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import JobOfferPDFParser from './JobOfferPDFParser';
+import { LocationAutocomplete } from '@/components/shared/LocationAutocomplete';
+import { LocationHierarchy, formatLocationHierarchy, getCityHierarchy } from '@/data/locations';
 import { 
   FileText, 
   PenLine, 
@@ -532,14 +534,16 @@ export default function OfferForm({
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Lieu *
             </label>
-            <input
-              name="location"
-              type="text"
-              value={formData.location}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Paris, Lyon..."
-              required
+            <LocationAutocomplete
+              value={formData.location ? getCityHierarchy(formData.location) || { city: formData.location } : null}
+              onChange={(loc) => {
+                const locationStr = loc 
+                  ? (loc.city || loc.region || loc.country || loc.continent || '') 
+                  : '';
+                setFormData(prev => ({ ...prev, location: locationStr }));
+              }}
+              placeholder="Rechercher une ville, région..."
+              allowedTypes={['city', 'region', 'country']}
             />
           </div>
 

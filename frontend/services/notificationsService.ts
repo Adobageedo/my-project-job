@@ -22,11 +22,8 @@ export const getNotificationSettings = async (userId: string): Promise<Notificat
     if (error.code === 'PGRST116') {
       return {
         userId,
-        emailOnNewOffer: true,
-        emailOnApplicationStatus: true,
-        emailOnNewApplication: true,
-        frequency: 'immediate',
-        pauseUntil: null,
+        emailMatchingOffers: true,
+        emailApplicationUpdates: true,
       };
     }
     throw new Error(error.message);
@@ -34,11 +31,8 @@ export const getNotificationSettings = async (userId: string): Promise<Notificat
 
   return {
     userId: data.user_id,
-    emailOnNewOffer: data.email_on_new_offer,
-    emailOnApplicationStatus: data.email_on_application_status,
-    emailOnNewApplication: data.email_on_new_application,
-    frequency: data.frequency,
-    pauseUntil: data.pause_until,
+    emailMatchingOffers: data.email_matching_offers ?? true,
+    emailApplicationUpdates: data.email_application_updates ?? true,
   };
 };
 
@@ -51,25 +45,16 @@ export const updateNotificationSettings = async (
 ): Promise<NotificationSettings> => {
   const updatePayload: Record<string, any> = { user_id: userId };
 
-  if (settings.emailOnNewOffer !== undefined) {
-    updatePayload.email_on_new_offer = settings.emailOnNewOffer;
+  if (settings.emailMatchingOffers !== undefined) {
+    updatePayload.email_matching_offers = settings.emailMatchingOffers;
   }
-  if (settings.emailOnApplicationStatus !== undefined) {
-    updatePayload.email_on_application_status = settings.emailOnApplicationStatus;
-  }
-  if (settings.emailOnNewApplication !== undefined) {
-    updatePayload.email_on_new_application = settings.emailOnNewApplication;
-  }
-  if (settings.frequency) {
-    updatePayload.frequency = settings.frequency;
-  }
-  if (settings.pauseUntil !== undefined) {
-    updatePayload.pause_until = settings.pauseUntil;
+  if (settings.emailApplicationUpdates !== undefined) {
+    updatePayload.email_application_updates = settings.emailApplicationUpdates;
   }
 
   const { data, error } = await supabase
     .from('notification_settings')
-    .upsert(updatePayload)
+    .upsert(updatePayload, { onConflict: 'user_id' })
     .select()
     .single();
 
@@ -79,11 +64,8 @@ export const updateNotificationSettings = async (
 
   return {
     userId: data.user_id,
-    emailOnNewOffer: data.email_on_new_offer,
-    emailOnApplicationStatus: data.email_on_application_status,
-    emailOnNewApplication: data.email_on_new_application,
-    frequency: data.frequency,
-    pauseUntil: data.pause_until,
+    emailMatchingOffers: data.email_matching_offers ?? true,
+    emailApplicationUpdates: data.email_application_updates ?? true,
   };
 };
 

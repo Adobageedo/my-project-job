@@ -17,10 +17,13 @@ export default function NavBar({ role: propRole }: NavBarProps) {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const loginDropdownRef = useRef<HTMLDivElement>(null);
-  const { role: authRole, logout, isLoading } = useAuth();
+  const { role: authRole, logout, isLoading, candidate } = useAuth();
   
   // Utiliser le rôle du contexte si disponible, sinon celui passé en prop
   const role = authRole || propRole;
+
+  // Vérifier si le candidat doit compléter l'onboarding
+  const needsOnboarding = role === 'candidate' && (!candidate || !candidate.firstName);
 
   const isActive = (path: string) => pathname === path;
   const isActivePrefix = (prefix: string) => pathname.startsWith(prefix);
@@ -116,7 +119,7 @@ export default function NavBar({ role: propRole }: NavBarProps) {
               </>
             )}
 
-            {role === 'candidate' && (
+            {role === 'candidate' && !needsOnboarding && (
               <>
                 <Link
                   href="/candidate"
@@ -324,6 +327,12 @@ export default function NavBar({ role: propRole }: NavBarProps) {
               </>
             )}
 
+            {role === 'candidate' && needsOnboarding && (
+              <span className="px-4 py-2 text-slate-500 text-sm font-light">
+                Complétez votre profil
+              </span>
+            )}
+
             {role && (
               <button
                 onClick={() => logout()}
@@ -390,7 +399,22 @@ export default function NavBar({ role: propRole }: NavBarProps) {
               </>
             )}
 
-            {role === 'candidate' && (
+            {role === 'candidate' && needsOnboarding && (
+              <>
+                <div className="px-4 py-3 text-slate-500 text-sm">
+                  Complétez votre profil pour accéder à toutes les fonctionnalités
+                </div>
+                <div className="border-t border-[#e8e4dc] my-2" />
+                <button
+                  onClick={() => { logout(); setShowMobileMenu(false); }}
+                  className="w-full px-4 py-3 text-left text-red-600 hover:bg-white rounded-lg transition"
+                >
+                  Déconnexion
+                </button>
+              </>
+            )}
+
+            {role === 'candidate' && !needsOnboarding && (
               <>
                 <Link
                   href="/candidate"

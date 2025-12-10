@@ -165,3 +165,30 @@ WHERE cv_url IS NOT NULL AND role = 'candidate';
 -- FOR DELETE
 -- TO authenticated
 -- USING (bucket_id = 'cvs' AND owner = auth.uid());
+-- Allow authenticated users to upload to 'cvs' bucket
+create policy "Allow authenticated uploads to cvs"
+on storage.objects
+for insert
+to authenticated
+with check (bucket_id = 'cvs');
+
+-- Allow authenticated users to read objects in 'cvs'
+create policy "Allow authenticated read cvs"
+on storage.objects
+for select
+to authenticated
+using (bucket_id = 'cvs');
+
+-- (Optional) allow updates/deletes of own objects
+create policy "Allow authenticated update own cvs"
+on storage.objects
+for update
+to authenticated
+using (bucket_id = 'cvs' and owner = auth.uid())
+with check (bucket_id = 'cvs' and owner = auth.uid());
+
+create policy "Allow authenticated delete own cvs"
+on storage.objects
+for delete
+to authenticated
+using (bucket_id = 'cvs' and owner = auth.uid());

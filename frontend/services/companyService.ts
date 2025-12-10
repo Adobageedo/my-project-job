@@ -127,16 +127,19 @@ export async function getCurrentCompany(): Promise<Company | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  // Get user's company_id
+  // Get user's company_id (only for company role users)
   const { data: userData, error: userError } = await supabase
     .from('users')
-    .select('company_id')
+    .select('company_id, role')
     .eq('id', user.id)
-    .eq('role', 'company')
     .single();
 
-  if (userError || !userData?.company_id) {
-    console.error('Error fetching user company:', userError);
+  // Si l'utilisateur n'est pas un company, retourner null sans erreur
+  if (userError || !userData || userData.role !== 'company' || !userData.company_id) {
+    // Ne logger que les vraies erreurs, pas les cas attendus (utilisateur non-company)
+    if (userError && userError.code !== 'PGRST116') {
+      console.error('Error fetching user company:', userError);
+    }
     return null;
   }
 
@@ -334,10 +337,12 @@ export async function removeTeamMember(
 
 /**
  * Get applications for company
+ * Note: By default excludes withdrawn applications unless includeWithdrawn is true
  */
 export async function getCompanyApplications(
   companyId: string,
-  filters: ApplicationFilters = {}
+  filters: ApplicationFilters = {},
+  includeWithdrawn: boolean = false
 ): Promise<{ applications: Application[]; total: number }> {
   const { job_offer_id, status, search, page = 1, limit = 50 } = filters;
   const offset = (page - 1) * limit;
@@ -353,6 +358,11 @@ export async function getCompanyApplications(
       job_offer:job_offers(id, title)
     `, { count: 'exact' })
     .eq('company_id', companyId);
+
+  // Exclude withdrawn applications by default
+  if (!includeWithdrawn && !status) {
+    query = query.neq('status', 'withdrawn');
+  }
 
   if (job_offer_id) {
     query = query.eq('job_offer_id', job_offer_id);
@@ -646,6 +656,7 @@ export async function removeTag(
 
 /**
  * Get company dashboard stats
+ * Note: Excludes withdrawn applications from counts
  */
 export async function getCompanyStats(companyId: string) {
   const [offersResult, applicationsResult] = await Promise.all([
@@ -657,6 +668,7 @@ export async function getCompanyStats(companyId: string) {
       .from('applications')
       .select('status', { count: 'exact' })
       .eq('company_id', companyId)
+      .neq('status', 'withdrawn') // Exclude withdrawn applications
   ]);
 
   // Count offers by status
@@ -665,7 +677,7 @@ export async function getCompanyStats(companyId: string) {
     offersByStatus[offer.status] = (offersByStatus[offer.status] || 0) + 1;
   });
 
-  // Count applications by status
+  // Count applications by status (excluding withdrawn)
   const applicationsByStatus: Record<string, number> = {};
   (applicationsResult.data || []).forEach(app => {
     applicationsByStatus[app.status] = (applicationsByStatus[app.status] || 0) + 1;

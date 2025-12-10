@@ -7,12 +7,14 @@ import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import JobCard from '@/components/job/JobCard';
 import Modal from '@/components/shared/Modal';
-import { LocationFilter } from '@/components/shared/LocationSearch';
+import { LocationAutocomplete } from '@/components/shared/LocationAutocomplete';
+import { LocationHierarchy } from '@/data/locations';
 import { LoginPrompt } from '@/components/shared/LoginPrompt';
 import { getAllOffersForCandidate, FrontendJobOffer } from '@/services/offerService';
 import { getCurrentCandidate, getSavedCVs, createSavedSearch, getSavedSearches, SavedSearch, AlertFrequency } from '@/services/candidateService';
 import { useFeatureAccess } from '@/hooks/useRoleAuth';
-import { FRENCH_REGIONS, getRegionFromCity } from '@/types';
+import { getRegionFromCity } from '@/types';
+import SavedSearchForm, { SavedSearchFormData, formDataToSearchFilters, formDataToNotificationOptions } from '@/components/candidate/SavedSearchForm';
 import { 
   Search, 
   MapPin, 
@@ -37,19 +39,14 @@ export default function CandidateOffersPage() {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [locationFilter, setLocationFilter] = useState<LocationHierarchy | null>(null);
   const [filters, setFilters] = useState({
-    city: '',
-    region: '',
-    country: 'France',
     studyLevel: '',
     contractType: '',
   });
   
   // États pour la sauvegarde de recherche
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [searchName, setSearchName] = useState('');
-  const [alertEnabled, setAlertEnabled] = useState(true);
-  const [alertFrequency, setAlertFrequency] = useState<AlertFrequency>('daily');
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
@@ -97,40 +94,40 @@ export default function CandidateOffersPage() {
   const generateSearchName = () => {
     const parts: string[] = [];
     if (searchTerm) parts.push(`"${searchTerm}"`);
-    if (filters.city) parts.push(filters.city);
-    else if (filters.region) parts.push(filters.region);
+    if (locationFilter) {
+      parts.push(locationFilter.city || locationFilter.region || locationFilter.country || '');
+    }
     if (filters.contractType) parts.push(filters.contractType);
     if (filters.studyLevel) parts.push(filters.studyLevel);
     return parts.length > 0 ? parts.join(' - ') : 'Ma recherche';
   };
 
-  // Sauvegarder la recherche
-  const handleSaveSearch = async () => {
-    if (!searchName.trim()) return;
+  // Sauvegarder la recherche via le formulaire
+  const handleSaveSearch = async (formData: SavedSearchFormData) => {
+    if (!candidateId) return;
     
     setIsSaving(true);
     try {
-      if (!candidateId) return;
-
+      const searchFilters = formDataToSearchFilters(formData);
+      const notificationOptions = formDataToNotificationOptions(formData);
+      
       const newSearch = await createSavedSearch(
         candidateId,
-        searchName,
+        formData.name,
+        searchFilters,
+        formData.alertEnabled,
+        formData.alertFrequency,
         {
-          query: searchTerm || undefined,
-          regions: filters.region ? [filters.region] : undefined,
-          cities: filters.city ? [filters.city] : undefined,
-          contractTypes: filters.contractType ? [filters.contractType] : undefined,
-          studyLevels: filters.studyLevel ? [filters.studyLevel] : undefined,
-        },
-        alertEnabled,
-        alertFrequency
+          preferredDay: notificationOptions.preferred_day,
+          preferredHour: notificationOptions.preferred_hour,
+          biweeklyWeek: notificationOptions.biweekly_week,
+        }
       );
       setSavedSearches(prev => [newSearch, ...prev]);
       setSavedSuccess(true);
       setTimeout(() => {
         setShowSaveModal(false);
         setSavedSuccess(false);
-        setSearchName('');
       }, 1500);
     } catch (error) {
       console.error('Erreur sauvegarde:', error);
@@ -146,16 +143,16 @@ export default function CandidateOffersPage() {
     });
     
     if (hasAccess) {
-      setSearchName(generateSearchName());
       setShowSaveModal(true);
     }
   };
 
   // Vérifier si la recherche actuelle est déjà sauvegardée
+  const locationString = locationFilter?.city || locationFilter?.region || locationFilter?.country;
   const isCurrentSearchSaved = savedSearches.some(s => 
-    s.filters.query === (searchTerm || undefined) &&
-    JSON.stringify(s.filters.regions) === JSON.stringify(filters.region ? [filters.region] : undefined) &&
-    JSON.stringify(s.filters.contractTypes) === JSON.stringify(filters.contractType ? [filters.contractType] : undefined)
+    s.filters.search === (searchTerm || undefined) &&
+    JSON.stringify(s.filters.locations) === JSON.stringify(locationString ? [locationString] : undefined) &&
+    JSON.stringify(s.filters.contract_types) === JSON.stringify(filters.contractType ? [filters.contractType] : undefined)
   );
 
   // Filtrer les offres
@@ -166,13 +163,22 @@ export default function CandidateOffersPage() {
       (offer.company?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (offer.description || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-    // Filtrage par localisation hiérarchique
+    // Filtrage par localisation hiérarchique (ville dans région dans pays)
     let matchesLocation = true;
-    if (filters.city) {
-      matchesLocation = (offer.location || '').toLowerCase().includes(filters.city.toLowerCase());
-    } else if (filters.region) {
+    if (locationFilter) {
+      const offerLocation = (offer.location || '').toLowerCase();
       const offerRegion = getRegionFromCity(offer.location);
-      matchesLocation = offerRegion === filters.region;
+      
+      if (locationFilter.city) {
+        // Filtre par ville exacte
+        matchesLocation = offerLocation.includes(locationFilter.city.toLowerCase());
+      } else if (locationFilter.region) {
+        // Filtre par région (inclut toutes les villes de la région)
+        matchesLocation = offerRegion === locationFilter.region;
+      } else if (locationFilter.country) {
+        // Filtre par pays (toutes les offres du pays)
+        matchesLocation = true; // Pour l'instant, on suppose que toutes sont en France
+      }
     }
 
     const matchesStudyLevel =
@@ -184,12 +190,13 @@ export default function CandidateOffersPage() {
     return matchesSearch && matchesLocation && matchesStudyLevel && matchesContractType;
   });
 
-  const hasActiveFilters = filters.city || filters.region || filters.studyLevel || filters.contractType;
-  const activeFiltersCount = [filters.city, filters.region, filters.studyLevel, filters.contractType].filter(Boolean).length;
+  const hasActiveFilters = locationFilter || filters.studyLevel || filters.contractType;
+  const activeFiltersCount = [locationFilter, filters.studyLevel, filters.contractType].filter(Boolean).length;
 
   const clearAllFilters = () => {
     setSearchTerm('');
-    setFilters({ city: '', region: '', country: 'France', studyLevel: '', contractType: '' });
+    setLocationFilter(null);
+    setFilters({ studyLevel: '', contractType: '' });
   };
 
   return (
@@ -282,21 +289,14 @@ export default function CandidateOffersPage() {
               <div className="mt-4 pt-4 border-t flex flex-wrap items-center gap-2">
                 <span className="text-sm text-gray-500">Filtres actifs :</span>
                 
-                {filters.region && (
+                {locationFilter && (
                   <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-sm">
                     <MapPin className="h-3 w-3" />
-                    {filters.region}
-                    <button onClick={() => setFilters({ ...filters, region: '', city: '' })} className="ml-1 hover:text-purple-900">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                )}
-                
-                {filters.city && (
-                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm">
-                    <MapPin className="h-3 w-3" />
-                    {filters.city}
-                    <button onClick={() => setFilters({ ...filters, city: '' })} className="ml-1 hover:text-blue-900">
+                    {locationFilter.city || locationFilter.region || locationFilter.country}
+                    {locationFilter.city && locationFilter.region && (
+                      <span className="text-purple-500 text-xs">({locationFilter.region})</span>
+                    )}
+                    <button onClick={() => setLocationFilter(null)} className="ml-1 hover:text-purple-900">
                       <X className="h-3 w-3" />
                     </button>
                   </span>
@@ -338,18 +338,16 @@ export default function CandidateOffersPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {/* Location Filter */}
                 <div className="lg:col-span-2">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-blue-600" />
-                    Localisation
-                  </h3>
-                  <LocationFilter
-                    selectedCity={filters.city}
-                    selectedRegion={filters.region}
-                    selectedCountry={filters.country}
-                    onCityChange={(city) => setFilters({ ...filters, city: city || '' })}
-                    onRegionChange={(region) => setFilters({ ...filters, region: region || '', city: '' })}
-                    onCountryChange={() => {}}
+                  <LocationAutocomplete
+                    value={locationFilter}
+                    onChange={setLocationFilter}
+                    label="Localisation"
+                    placeholder="Ville, région ou pays..."
+                    allowedTypes={['city', 'region', 'country']}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Filtrez par ville, région (inclut toutes les villes) ou pays
+                  </p>
                 </div>
 
                 {/* Study Level */}
@@ -477,180 +475,38 @@ export default function CandidateOffersPage() {
         isOpen={showSaveModal}
         onClose={() => {
           setShowSaveModal(false);
-          setSearchName('');
           setSavedSuccess(false);
         }}
-        title="Créer une alerte"
+        title="Sauvegarder cette recherche"
+        size="lg"
       >
         {savedSuccess ? (
           <div className="text-center py-6">
             <div className="h-16 w-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Check className="h-8 w-8 text-green-600" />
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Alerte créée !</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Recherche sauvegardée !</h3>
             <p className="text-gray-600">
               Vous recevrez un email dès qu'une nouvelle offre correspond à vos critères.
             </p>
           </div>
         ) : (
-          <div className="space-y-5">
-            {/* Résumé des critères */}
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Critères de recherche</h4>
-              <div className="flex flex-wrap gap-2">
-                {searchTerm && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 rounded text-sm">
-                    <Search className="h-3 w-3 text-gray-400" />
-                    "{searchTerm}"
-                  </span>
-                )}
-                {filters.region && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm">
-                    <MapPin className="h-3 w-3" />
-                    {filters.region}
-                  </span>
-                )}
-                {filters.city && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm">
-                    <MapPin className="h-3 w-3" />
-                    {filters.city}
-                  </span>
-                )}
-                {filters.contractType && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded text-sm capitalize">
-                    <Briefcase className="h-3 w-3" />
-                    {filters.contractType}
-                  </span>
-                )}
-                {filters.studyLevel && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-sm">
-                    <GraduationCap className="h-3 w-3" />
-                    {filters.studyLevel}
-                  </span>
-                )}
-                {!searchTerm && !filters.region && !filters.city && !filters.contractType && !filters.studyLevel && (
-                  <span className="text-gray-500 text-sm">Toutes les offres</span>
-                )}
-              </div>
-            </div>
-
-            {/* Nom de la recherche */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Nom de l'alerte
-              </label>
-              <input
-                type="text"
-                value={searchName}
-                onChange={(e) => setSearchName(e.target.value)}
-                placeholder="Ex: Stages Finance Paris"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            {/* Fréquence des alertes */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Clock className="inline h-4 w-4 mr-1" />
-                Fréquence des notifications
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAlertFrequency('instant')}
-                  className={`p-3 rounded-lg border-2 text-center transition ${
-                    alertFrequency === 'instant'
-                      ? 'border-blue-600 bg-blue-50 text-blue-700'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="font-medium text-sm">Instantané</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Dès qu'une offre arrive</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAlertFrequency('daily')}
-                  className={`p-3 rounded-lg border-2 text-center transition ${
-                    alertFrequency === 'daily'
-                      ? 'border-blue-600 bg-blue-50 text-blue-700'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="font-medium text-sm">Quotidien</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Résumé chaque jour</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAlertFrequency('weekly')}
-                  className={`p-3 rounded-lg border-2 text-center transition ${
-                    alertFrequency === 'weekly'
-                      ? 'border-blue-600 bg-blue-50 text-blue-700'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="font-medium text-sm">Hebdo</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Résumé chaque semaine</div>
-                </button>
-              </div>
-            </div>
-
-            {/* Toggle alertes */}
-            <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <Bell className="h-5 w-5 text-blue-600" />
-                <div>
-                  <div className="font-medium text-gray-900">Recevoir les alertes par email</div>
-                  <div className="text-sm text-gray-600">
-                    Soyez notifié des nouvelles offres correspondantes
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAlertEnabled(!alertEnabled)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-                  alertEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                    alertEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => {
-                  setShowSaveModal(false);
-                  setSearchName('');
-                }}
-                className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium"
-                disabled={isSaving}
-              >
-                Annuler
-              </button>
-              <button
-                onClick={handleSaveSearch}
-                disabled={isSaving || !searchName.trim()}
-                className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Création...
-                  </>
-                ) : (
-                  <>
-                    <BellRing className="h-4 w-4" />
-                    Créer l'alerte
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
+          <SavedSearchForm
+            initialData={{
+              name: generateSearchName(),
+              query: searchTerm,
+              locations: locationFilter ? [locationFilter] : [],
+              contractTypes: filters.contractType ? [filters.contractType] : [],
+              studyLevels: filters.studyLevel ? [filters.studyLevel] : [],
+              alertEnabled: true,
+              alertFrequency: 'daily',
+              preferredDay: 'monday',
+              preferredHour: 9,
+            }}
+            onSubmit={handleSaveSearch}
+            onCancel={() => setShowSaveModal(false)}
+            isSubmitting={isSaving}
+          />
         )}
       </Modal>
 

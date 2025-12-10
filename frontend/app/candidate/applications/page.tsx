@@ -30,8 +30,16 @@ import {
   Loader2,
   UserCheck,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, subDays, subMonths, subYears, isAfter, startOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
+
+// Types pour le filtre de période
+type TimeRangeFilter = '1m' | '6m' | '1y' | 'custom' | 'all';
+
+interface CustomDateRange {
+  start: Date | null;
+  end: Date | null;
+}
 
 // Map DB status to display config
 const statusConfig: Record<string, { label: string; color: string; bg: string; icon: any }> = {
@@ -53,6 +61,15 @@ export default function CandidateApplicationsPage() {
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | 'all'>('all');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // État pour le filtre de période (par défaut : 7 derniers jours)
+  const [timeRange, setTimeRange] = useState<TimeRangeFilter>('custom');
+  const [customDateRange, setCustomDateRange] = useState<CustomDateRange>(() => {
+    const end = new Date();
+    const start = subDays(end, 7);
+    return { start, end };
+  });
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(true);
   
   // État pour la suppression
   const [applicationToDelete, setApplicationToDelete] = useState<FrontendApplication | null>(null);
@@ -83,17 +100,46 @@ export default function CandidateApplicationsPage() {
     }
   };
 
+  // Calculer la date de début selon le filtre de période
+  const getStartDateFromTimeRange = (): Date | null => {
+    const now = new Date();
+    switch (timeRange) {
+      case '1m': return subMonths(now, 1);
+      case '6m': return subMonths(now, 6);
+      case '1y': return subYears(now, 1);
+      case 'custom': return customDateRange.start;
+      case 'all': return null;
+      default: return subMonths(now, 6);
+    }
+  };
+
   // Appliquer les filtres
   const filteredApplications = applications.filter((app) => {
+    // Filtre par statut
     let matchesStatus = statusFilter === 'all' || app.status === statusFilter;
     // Handle combined "in_progress" filter (includes in_progress and interview)
     if (statusFilter === 'in_progress') {
       matchesStatus = app.status === 'in_progress' || app.status === 'interview';
     }
+    
+    // Filtre par recherche
     const matchesSearch = searchTerm === '' || 
       (app.offer?.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (app.offer?.company?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesStatus && matchesSearch;
+    
+    // Filtre par période
+    let matchesTimeRange = true;
+    const startDate = getStartDateFromTimeRange();
+    if (startDate) {
+      const appDate = new Date(app.applicationDate);
+      matchesTimeRange = isAfter(appDate, startOfDay(startDate));
+    }
+    if (timeRange === 'custom' && customDateRange.end) {
+      const appDate = new Date(app.applicationDate);
+      matchesTimeRange = matchesTimeRange && !isAfter(appDate, customDateRange.end);
+    }
+    
+    return matchesStatus && matchesSearch && matchesTimeRange;
   });
 
   // Fonction de suppression (retrait de candidature)
@@ -227,18 +273,116 @@ export default function CandidateApplicationsPage() {
             </button>
           </div>
 
-          {/* Search */}
+          {/* Search & Time Range Filter */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Rechercher par offre ou entreprise..."
-                className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Search */}
+              <div className="flex-1 relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Rechercher par offre ou entreprise..."
+                  className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              
+              {/* Time Range Filter */}
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-gray-400" />
+                <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+                  <button
+                    onClick={() => { setTimeRange('1m'); setShowCustomDatePicker(false); }}
+                    className={`px-3 py-2 text-sm font-medium transition ${
+                      timeRange === '1m' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    1 mois
+                  </button>
+                  <button
+                    onClick={() => { setTimeRange('6m'); setShowCustomDatePicker(false); }}
+                    className={`px-3 py-2 text-sm font-medium border-l transition ${
+                      timeRange === '6m' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    6 mois
+                  </button>
+                  <button
+                    onClick={() => { setTimeRange('1y'); setShowCustomDatePicker(false); }}
+                    className={`px-3 py-2 text-sm font-medium border-l transition ${
+                      timeRange === '1y' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    1 an
+                  </button>
+                  <button
+                    onClick={() => { setTimeRange('all'); setShowCustomDatePicker(false); }}
+                    className={`px-3 py-2 text-sm font-medium border-l transition ${
+                      timeRange === 'all' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    Tout
+                  </button>
+                  <button
+                    onClick={() => { setTimeRange('custom'); setShowCustomDatePicker(!showCustomDatePicker); }}
+                    className={`px-3 py-2 text-sm font-medium border-l transition ${
+                      timeRange === 'custom' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    Personnalisé
+                  </button>
+                </div>
+              </div>
             </div>
+            
+            {/* Custom Date Range Picker */}
+            {showCustomDatePicker && timeRange === 'custom' && (
+              <div className="mt-4 pt-4 border-t flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600">Du</label>
+                  <input
+                    type="date"
+                    value={customDateRange.start ? format(customDateRange.start, 'yyyy-MM-dd') : ''}
+                    onChange={(e) => setCustomDateRange(prev => ({ 
+                      ...prev, 
+                      start: e.target.value ? new Date(e.target.value) : null 
+                    }))}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600">Au</label>
+                  <input
+                    type="date"
+                    value={customDateRange.end ? format(customDateRange.end, 'yyyy-MM-dd') : ''}
+                    onChange={(e) => setCustomDateRange(prev => ({ 
+                      ...prev, 
+                      end: e.target.value ? new Date(e.target.value) : null 
+                    }))}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                {(customDateRange.start || customDateRange.end) && (
+                  <button
+                    onClick={() => setCustomDateRange({ start: null, end: null })}
+                    className="text-sm text-red-600 hover:text-red-700"
+                  >
+                    Effacer
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Applications List */}

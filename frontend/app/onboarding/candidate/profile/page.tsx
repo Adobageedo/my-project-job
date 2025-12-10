@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { User, MapPin, GraduationCap, Check, ArrowRight, ArrowLeft } from 'lucide-react';
+import { User, MapPin, GraduationCap, Check, ArrowRight, ArrowLeft, Briefcase, Link2, AlertCircle, Linkedin, Globe, X } from 'lucide-react';
+import { MultiLocationAutocomplete } from '@/components/shared/LocationAutocomplete';
+import { LocationHierarchy } from '@/data/locations';
 
 interface ProfileFormData {
   firstName: string;
@@ -17,15 +19,18 @@ interface ProfileFormData {
   studyLevel: string;
   specialization: string;
   availableFrom: string;
+  linkedinUrl: string;
+  portfolioUrl: string;
 }
 
 const STUDY_LEVELS = [
-  { value: 'L3', label: 'Licence 3 (Bac+3)' },
-  { value: 'M1', label: 'Master 1 (Bac+4)' },
-  { value: 'M2', label: 'Master 2 (Bac+5)' },
-  { value: 'MBA', label: 'MBA' },
-  { value: 'Autre', label: 'Autre' },
+  { value: 'bac+3', label: 'Licence 3 (Bac+3)' },
+  { value: 'bac+4', label: 'Master 1 (Bac+4)' },
+  { value: 'bac+5', label: 'Master 2 (Bac+5)' },
+  { value: 'bac+6', label: 'MBA / Bac+6' },
+  { value: 'doctorat', label: 'Doctorat' },
 ];
+
 
 export default function CandidateOnboardingPage() {
   const router = useRouter();
@@ -43,7 +48,18 @@ export default function CandidateOnboardingPage() {
     studyLevel: 'bac+4',
     specialization: '',
     availableFrom: '',
+    linkedinUrl: '',
+    portfolioUrl: '',
   });
+
+  // Types de contrat recherchés
+  const [contractTypes, setContractTypes] = useState<string[]>(['stage']);
+  
+  // Localisations souhaitées (format hiérarchique)
+  const [targetLocations, setTargetLocations] = useState<LocationHierarchy[]>([]);
+  
+  // Erreurs de validation
+  const [linkErrors, setLinkErrors] = useState<{ linkedin?: string; portfolio?: string }>({});
 
   // Vérifier si l'utilisateur est authentifié
   useEffect(() => {
@@ -73,18 +89,86 @@ export default function CandidateOnboardingPage() {
 
   const handleChange = (field: keyof ProfileFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear link errors when user types
+    if (field === 'linkedinUrl') setLinkErrors(prev => ({ ...prev, linkedin: undefined }));
+    if (field === 'portfolioUrl') setLinkErrors(prev => ({ ...prev, portfolio: undefined }));
+  };
+
+  // Normalisation des URLs (ajoute https:// si manquant)
+  const normalizeUrl = (url: string): string => {
+    if (!url || url.trim() === '') return '';
+    
+    let normalized = url.trim();
+    
+    // Ajouter https:// si le protocole est manquant
+    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+      normalized = 'https://' + normalized;
+    }
+    
+    return normalized;
+  };
+
+  // Validation des URLs
+  const validateUrl = (url: string, type: 'linkedin' | 'portfolio'): string | null => {
+    if (!url || url.trim() === '') return null; // Vide = OK
+    
+    const normalized = normalizeUrl(url);
+    
+    try {
+      const parsed = new URL(normalized);
+      
+      if (type === 'linkedin') {
+        if (!parsed.hostname.includes('linkedin.com')) {
+          return 'Le lien doit être un profil LinkedIn (linkedin.com)';
+        }
+        if (!normalized.includes('/in/') && !normalized.includes('/company/')) {
+          return 'Format: linkedin.com/in/votre-profil';
+        }
+      }
+      
+      if (type === 'portfolio') {
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          return 'Le lien doit commencer par http:// ou https://';
+        }
+      }
+      
+      return null;
+    } catch {
+      return 'URL invalide';
+    }
+  };
+
+  // Toggle contract type
+  const toggleContractType = (type: string) => {
+    if (contractTypes.includes(type)) {
+      // Don't allow removing the last one
+      if (contractTypes.length > 1) {
+        setContractTypes(contractTypes.filter(t => t !== type));
+      }
+    } else {
+      setContractTypes([...contractTypes, type]);
+    }
   };
 
   const handleNext = () => {
-    // Validation simple
+    // Validation par étape
     if (step === 1) {
       if (!formData.firstName || !formData.lastName || !formData.phone) {
         alert('Veuillez remplir tous les champs obligatoires');
         return;
       }
     } else if (step === 2) {
-      if (!formData.city || !formData.postalCode) {
-        alert('Veuillez remplir tous les champs obligatoires');
+      if (targetLocations.length === 0) {
+        alert('Veuillez sélectionner au moins une localisation');
+        return;
+      }
+    } else if (step === 3) {
+      // Valider les liens si renseignés
+      const linkedinError = validateUrl(formData.linkedinUrl, 'linkedin');
+      const portfolioError = validateUrl(formData.portfolioUrl, 'portfolio');
+      
+      if (linkedinError || portfolioError) {
+        setLinkErrors({ linkedin: linkedinError || undefined, portfolio: portfolioError || undefined });
         return;
       }
     }
@@ -120,7 +204,12 @@ export default function CandidateOnboardingPage() {
           education_level: formData.studyLevel,
           specialization: formData.specialization,
           available_from: formData.availableFrom || null,
-          target_locations: [formData.city],
+          // Convertir LocationHierarchy[] en string[] pour la sauvegarde
+          target_locations: targetLocations.map(loc => loc.city || loc.region || loc.country || '').filter(Boolean),
+          contract_types_sought: contractTypes,
+          // Normaliser les URLs avant de les envoyer
+          linkedin_url: formData.linkedinUrl?.trim() ? normalizeUrl(formData.linkedinUrl) : null,
+          portfolio_url: formData.portfolioUrl?.trim() ? normalizeUrl(formData.portfolioUrl) : null,
           onboarding_completed: true,
           profile_completed: true,
         })
@@ -144,13 +233,13 @@ export default function CandidateOnboardingPage() {
         {/* Progress bar */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm text-gray-600 font-medium">
-            <span>Étape {step} sur 3</span>
-            <span>{Math.round((step / 3) * 100)}%</span>
+            <span>Étape {step} sur 4</span>
+            <span>{Math.round((step / 4) * 100)}%</span>
           </div>
           <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
-              style={{ width: `${(step / 3) * 100}%` }}
+              style={{ width: `${(step / 4) * 100}%` }}
             />
           </div>
         </div>
@@ -237,7 +326,7 @@ export default function CandidateOnboardingPage() {
           </div>
         )}
 
-        {/* Step 2: Adresse */}
+        {/* Step 2: Localisations souhaitées */}
         {step === 2 && (
           <div className="space-y-6">
             <div className="text-center space-y-2">
@@ -245,56 +334,20 @@ export default function CandidateOnboardingPage() {
                 <MapPin className="w-8 h-8 text-purple-600" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900">
-                Où habitez-vous ?
+                Où souhaitez-vous travailler ?
               </h1>
               <p className="text-gray-600">
-                Nous utiliserons cette information pour trouver des offres près de chez vous
+                Sélectionnez les villes où vous recherchez un stage ou une alternance
               </p>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Adresse
-                </label>
-                <input
-                  type="text"
-                  value={formData.address}
-                  onChange={(e) => handleChange('address', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  placeholder="123 Rue de la Paix"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Ville *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.city}
-                    onChange={(e) => handleChange('city', e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Paris"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Code postal *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.postalCode}
-                    onChange={(e) => handleChange('postalCode', e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="75001"
-                    required
-                  />
-                </div>
-              </div>
-            </div>
+            <MultiLocationAutocomplete
+              values={targetLocations}
+              onChange={setTargetLocations}
+              placeholder="Rechercher une ville, région..."
+              maxLocations={10}
+              allowedTypes={['city', 'region', 'country']}
+            />
 
             <div className="flex gap-4">
               <button
@@ -306,7 +359,8 @@ export default function CandidateOnboardingPage() {
               </button>
               <button
                 onClick={handleNext}
-                className="flex-1 py-3 px-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-pink-700 transition-all flex items-center justify-center gap-2"
+                disabled={targetLocations.length === 0}
+                className="flex-1 py-3 px-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-pink-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Continuer
                 <ArrowRight className="w-5 h-5" />
@@ -315,7 +369,7 @@ export default function CandidateOnboardingPage() {
           </div>
         )}
 
-        {/* Step 3: Études */}
+        {/* Step 3: Études & Type de recherche */}
         {step === 3 && (
           <div className="space-y-6">
             <div className="text-center space-y-2">
@@ -323,10 +377,10 @@ export default function CandidateOnboardingPage() {
                 <GraduationCap className="w-8 h-8 text-green-600" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900">
-                Votre parcours académique
+                Votre parcours & recherche
               </h1>
               <p className="text-gray-600">
-                Dernière étape avant de découvrir nos offres !
+                Parlez-nous de vos études et de ce que vous recherchez
               </p>
             </div>
 
@@ -345,35 +399,71 @@ export default function CandidateOnboardingPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Niveau d'études *
-                </label>
-                <select
-                  value={formData.studyLevel}
-                  onChange={(e) => handleChange('studyLevel', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  required
-                >
-                  {STUDY_LEVELS.map(level => (
-                    <option key={level.value} value={level.value}>
-                      {level.label}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Niveau d'études *
+                  </label>
+                  <select
+                    value={formData.studyLevel}
+                    onChange={(e) => handleChange('studyLevel', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    required
+                  >
+                    {STUDY_LEVELS.map(level => (
+                      <option key={level.value} value={level.value}>
+                        {level.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Spécialisation
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.specialization}
+                    onChange={(e) => handleChange('specialization', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder="Finance d'entreprise"
+                  />
+                </div>
               </div>
 
+              {/* Type de contrat recherché */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Spécialisation
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Type de contrat recherché *
                 </label>
-                <input
-                  type="text"
-                  value={formData.specialization}
-                  onChange={(e) => handleChange('specialization', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  placeholder="Finance d'entreprise"
-                />
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleContractType('stage')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 font-medium transition-all ${
+                      contractTypes.includes('stage')
+                        ? 'bg-blue-50 border-blue-500 text-blue-700'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Briefcase className="w-5 h-5" />
+                    Stage
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleContractType('alternance')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 font-medium transition-all ${
+                      contractTypes.includes('alternance')
+                        ? 'bg-purple-50 border-purple-500 text-purple-700'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <GraduationCap className="w-5 h-5" />
+                    Alternance
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Vous pouvez sélectionner les deux</p>
               </div>
 
               <div>
@@ -393,6 +483,92 @@ export default function CandidateOnboardingPage() {
               <button
                 onClick={handleBack}
                 className="flex-1 py-3 px-4 bg-white border-2 border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                Retour
+              </button>
+              <button
+                onClick={handleNext}
+                className="flex-1 py-3 px-4 bg-gradient-to-r from-green-600 to-teal-600 text-white rounded-lg font-medium hover:from-green-700 hover:to-teal-700 transition-all flex items-center justify-center gap-2"
+              >
+                Continuer
+                <ArrowRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Liens & Finalisation */}
+        {step === 4 && (
+          <div className="space-y-6">
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto">
+                <Link2 className="w-8 h-8 text-indigo-600" />
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                Vos liens professionnels
+              </h1>
+              <p className="text-gray-600">
+                Dernière étape ! Ajoutez vos liens pour compléter votre profil
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {/* LinkedIn */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <Linkedin className="inline w-4 h-4 mr-1 text-[#0A66C2]" />
+                  Profil LinkedIn
+                </label>
+                <input
+                  type="url"
+                  value={formData.linkedinUrl}
+                  onChange={(e) => handleChange('linkedinUrl', e.target.value)}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                    linkErrors.linkedin ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                  }`}
+                  placeholder="https://linkedin.com/in/votre-profil"
+                />
+                {linkErrors.linkedin && (
+                  <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {linkErrors.linkedin}
+                  </p>
+                )}
+              </div>
+
+              {/* Portfolio */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <Globe className="inline w-4 h-4 mr-1 text-gray-500" />
+                  Portfolio / Site web
+                </label>
+                <input
+                  type="url"
+                  value={formData.portfolioUrl}
+                  onChange={(e) => handleChange('portfolioUrl', e.target.value)}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                    linkErrors.portfolio ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                  }`}
+                  placeholder="https://mon-portfolio.com"
+                />
+                {linkErrors.portfolio && (
+                  <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {linkErrors.portfolio}
+                  </p>
+                )}
+              </div>
+
+              <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                💡 Ces liens sont optionnels mais aident les recruteurs à mieux vous connaître.
+              </p>
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                onClick={handleBack}
+                className="flex-1 py-3 px-4 bg-white border-2 border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
                 disabled={isSubmitting}
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -401,7 +577,7 @@ export default function CandidateOnboardingPage() {
               <button
                 onClick={handleSubmit}
                 disabled={isSubmitting}
-                className="flex-1 py-3 px-4 bg-gradient-to-r from-green-600 to-teal-600 text-white rounded-lg font-medium hover:from-green-700 hover:to-teal-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg font-medium hover:from-indigo-700 hover:to-purple-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   'Création...'

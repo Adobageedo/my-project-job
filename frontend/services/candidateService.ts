@@ -1,4 +1,10 @@
 import { supabase } from '@/lib/supabase';
+import { 
+  getFromCache, 
+  setInCache, 
+  invalidateUserCache,
+  cacheKeys 
+} from '@/lib/cache';
 
 // =====================================================
 // TYPES
@@ -86,14 +92,14 @@ export interface CandidateUpdateData {
   contract_types_sought?: string[];
   target_locations?: string[];
   remote_preference?: string;
-  headline?: string;
-  bio?: string;
+  headline?: string | null;
+  bio?: string | null;
   skills?: string[];
   languages?: Array<{ language: string; level: string }>;
   experiences?: Array<Record<string, unknown>>;
-  linkedin_url?: string;
-  portfolio_url?: string;
-  github_url?: string;
+  linkedin_url?: string | null;
+  portfolio_url?: string | null;
+  github_url?: string | null;
   onboarding_step?: number;
   onboarding_completed?: boolean;
 }
@@ -122,11 +128,19 @@ const mapStudyLevelToEducationEnum = (level?: string | null): string | undefined
 // =====================================================
 
 /**
- * Get current candidate profile
+ * Get current candidate profile (with cache)
  */
-export async function getCurrentCandidate(): Promise<Candidate | null> {
+export async function getCurrentCandidate(skipCache = false): Promise<Candidate | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
+
+  // Vérifier le cache d'abord
+  if (!skipCache) {
+    const cached = getFromCache<Candidate>(cacheKeys.candidateProfile(user.id), 'CANDIDATE_PROFILE');
+    if (cached) {
+      return cached;
+    }
+  }
 
   const { data, error } = await supabase
     .from('users')
@@ -138,6 +152,11 @@ export async function getCurrentCandidate(): Promise<Candidate | null> {
   if (error) {
     console.error('Error fetching candidate:', error);
     return null;
+  }
+
+  // Mettre en cache
+  if (data) {
+    setInCache(cacheKeys.candidateProfile(user.id), 'CANDIDATE_PROFILE', data);
   }
 
   return data as Candidate;
@@ -169,7 +188,7 @@ export async function getCandidateById(id: string): Promise<Candidate | null> {
 }
 
 /**
- * Update candidate profile
+ * Update candidate profile (invalidates cache)
  */
 export async function updateCandidateProfile(
   id: string,
@@ -191,6 +210,9 @@ export async function updateCandidateProfile(
     return { success: false, error: error.message };
   }
 
+  // Invalider le cache après modification
+  invalidateUserCache(id);
+
   return { success: true };
 }
 
@@ -207,11 +229,11 @@ export interface OnboardingData {
   alternanceRhythm?: string;
   availableFrom?: string;
   locations?: string[];
-  // cvUrl removed - CVs are now stored in candidate_cvs table
   linkedinUrl?: string;
   portfolioUrl?: string;
   bio?: string;
   skills?: string[];
+  contractTypes?: string[];
 }
 
 export async function completeOnboarding(
@@ -235,6 +257,7 @@ export async function completeOnboarding(
       portfolio_url: data.portfolioUrl || null,
       bio: data.bio || null,
       skills: data.skills || [],
+      contract_types_sought: data.contractTypes || ['stage'],
       onboarding_completed: true,
       profile_completed: true,
     })
@@ -974,7 +997,24 @@ export async function parseCV(file: File): Promise<{ success: boolean; data?: an
 // SAVED SEARCHES
 // =====================================================
 
-export type AlertFrequency = 'instant' | 'daily' | 'weekly' | 'never';
+export type AlertFrequency = 'instant' | 'daily' | 'weekly' | 'biweekly' | 'never';
+
+export type PreferredDay = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+
+export const DAYS_OF_WEEK: { value: PreferredDay; label: string }[] = [
+  { value: 'monday', label: 'Lundi' },
+  { value: 'tuesday', label: 'Mardi' },
+  { value: 'wednesday', label: 'Mercredi' },
+  { value: 'thursday', label: 'Jeudi' },
+  { value: 'friday', label: 'Vendredi' },
+  { value: 'saturday', label: 'Samedi' },
+  { value: 'sunday', label: 'Dimanche' },
+];
+
+export const HOURS_OF_DAY: { value: number; label: string }[] = Array.from({ length: 24 }, (_, i) => ({
+  value: i,
+  label: `${i.toString().padStart(2, '0')}:00`,
+}));
 
 export interface SearchFilters {
   search?: string;
@@ -990,10 +1030,47 @@ export interface SavedSearch {
   name: string;
   filters: SearchFilters;
   notify_new_matches: boolean;
-  notification_frequency: string;
+  notification_frequency: AlertFrequency;
+  preferred_day: PreferredDay;
+  preferred_hour: number;
+  biweekly_week: number; // 1 = semaines impaires, 2 = semaines paires
   last_notified_at: string | null;
   created_at: string;
   updated_at: string;
+  // Alias camelCase pour compatibilité UI
+  createdAt: string;
+  updatedAt: string;
+  // Champs calculés côté frontend
+  alertEnabled?: boolean;
+  alertFrequency?: AlertFrequency;
+  matchingOffersCount?: number;
+  lastUsedAt?: string;
+}
+
+/**
+ * Map database row to SavedSearch interface
+ */
+function mapSavedSearchFromDB(row: any): SavedSearch {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    name: row.name,
+    filters: row.filters || {},
+    notify_new_matches: row.notify_new_matches,
+    notification_frequency: row.notification_frequency as AlertFrequency,
+    preferred_day: row.preferred_day as PreferredDay || 'monday',
+    preferred_hour: row.preferred_hour ?? 9,
+    biweekly_week: row.biweekly_week || 1,
+    last_notified_at: row.last_notified_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    // Alias camelCase pour compatibilité UI
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    // Champs calculés pour compatibilité avec l'UI existante
+    alertEnabled: row.notify_new_matches,
+    alertFrequency: row.notification_frequency as AlertFrequency,
+  };
 }
 
 /**
@@ -1011,7 +1088,15 @@ export async function getSavedSearches(userId: string): Promise<SavedSearch[]> {
     return [];
   }
 
-  return data || [];
+  return (data || []).map(mapSavedSearchFromDB);
+}
+
+export interface CreateSavedSearchOptions {
+  alertEnabled?: boolean;
+  alertFrequency?: AlertFrequency;
+  preferredDay?: PreferredDay;
+  preferredHour?: number;
+  biweeklyWeek?: number;
 }
 
 /**
@@ -1021,28 +1106,40 @@ export async function createSavedSearch(
   userId: string,
   name: string,
   filters: SearchFilters,
-  alertFrequency: AlertFrequency = 'never'
-): Promise<{ success: boolean; search?: SavedSearch; error?: string }> {
-  const notifyMatches = alertFrequency !== 'never';
-  const frequency = alertFrequency === 'never' ? 'daily' : alertFrequency;
-  
+  alertEnabled: boolean = true,
+  alertFrequency: AlertFrequency = 'daily',
+  options?: Partial<CreateSavedSearchOptions>
+): Promise<SavedSearch> {
   const { data, error } = await supabase
     .from('saved_searches')
     .insert({
       user_id: userId,
       name,
       filters,
-      notify_new_matches: notifyMatches,
-      notification_frequency: frequency,
+      notify_new_matches: alertEnabled && alertFrequency !== 'never',
+      notification_frequency: alertFrequency,
+      preferred_day: options?.preferredDay || 'monday',
+      preferred_hour: options?.preferredHour ?? 9,
+      biweekly_week: options?.biweeklyWeek || 1,
     })
     .select()
     .single();
 
   if (error) {
-    return { success: false, error: error.message };
+    throw new Error(error.message);
   }
 
-  return { success: true, search: data };
+  return mapSavedSearchFromDB(data);
+}
+
+export interface UpdateSavedSearchOptions {
+  name?: string;
+  filters?: SearchFilters;
+  alertEnabled?: boolean;
+  alertFrequency?: AlertFrequency;
+  preferredDay?: PreferredDay;
+  preferredHour?: number;
+  biweeklyWeek?: number;
 }
 
 /**
@@ -1050,23 +1147,39 @@ export async function createSavedSearch(
  */
 export async function updateSavedSearch(
   searchId: string,
-  updates: Partial<{
-    name: string;
-    filters: SearchFilters;
-    alert_frequency: AlertFrequency;
-    is_active: boolean;
-  }>
-): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase
+  updates: UpdateSavedSearchOptions
+): Promise<SavedSearch> {
+  const dbUpdates: Record<string, unknown> = {};
+  
+  if (updates.name !== undefined) dbUpdates.name = updates.name;
+  if (updates.filters !== undefined) dbUpdates.filters = updates.filters;
+  if (updates.alertEnabled !== undefined) {
+    dbUpdates.notify_new_matches = updates.alertEnabled && updates.alertFrequency !== 'never';
+  }
+  if (updates.alertFrequency !== undefined) {
+    dbUpdates.notification_frequency = updates.alertFrequency;
+    if (updates.alertEnabled !== undefined) {
+      dbUpdates.notify_new_matches = updates.alertEnabled && updates.alertFrequency !== 'never';
+    }
+  }
+  if (updates.preferredDay !== undefined) dbUpdates.preferred_day = updates.preferredDay;
+  if (updates.preferredHour !== undefined) dbUpdates.preferred_hour = updates.preferredHour;
+  if (updates.biweeklyWeek !== undefined) dbUpdates.biweekly_week = updates.biweeklyWeek;
+  
+  dbUpdates.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
     .from('saved_searches')
-    .update(updates)
-    .eq('id', searchId);
+    .update(dbUpdates)
+    .eq('id', searchId)
+    .select()
+    .single();
 
   if (error) {
-    return { success: false, error: error.message };
+    throw new Error(error.message);
   }
 
-  return { success: true };
+  return mapSavedSearchFromDB(data);
 }
 
 /**

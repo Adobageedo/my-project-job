@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import { getCurrentCandidate, updateCandidateProfile, Candidate, getSavedCVs, getDefaultCV, SavedCV } from '@/services/candidateService';
+import { getNotificationSettings, updateNotificationSettings } from '@/services/notificationsService';
+import type { NotificationSettings } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   User, 
@@ -30,9 +32,10 @@ import {
   ExternalLink,
   Shield,
   Clock,
+  Bell,
 } from 'lucide-react';
-
-// Use the Candidate type from service
+import { MultiLocationAutocomplete } from '@/components/shared/LocationAutocomplete';
+import { LocationHierarchy, getCityHierarchy } from '@/data/locations';
 
 export default function CandidateProfilePage() {
   const router = useRouter();
@@ -44,6 +47,8 @@ export default function CandidateProfilePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [cvCount, setCvCount] = useState<number>(0);
   const [defaultCV, setDefaultCV] = useState<SavedCV | null>(null);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
+  const [savingNotifications, setSavingNotifications] = useState(false);
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -58,11 +63,16 @@ export default function CandidateProfilePage() {
     linkedinUrl: '',
     portfolioUrl: '',
     bio: '',
-    searchType: 'stage',
   });
 
-  const [locations, setLocations] = useState<string[]>([]);
-  const [locationInput, setLocationInput] = useState('');
+  // Types de contrat recherchés (stage, alternance, ou les deux)
+  const [contractTypes, setContractTypes] = useState<string[]>(['stage']);
+  
+  // Erreurs de validation des liens
+  const [linkErrors, setLinkErrors] = useState<{ linkedin?: string; portfolio?: string }>({});
+
+  // Localisations avec le format hiérarchique
+  const [locations, setLocations] = useState<LocationHierarchy[]>([]);
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState('');
 
@@ -93,9 +103,18 @@ export default function CandidateProfilePage() {
           linkedinUrl: candidateData.linkedin_url || '',
           portfolioUrl: candidateData.portfolio_url || '',
           bio: candidateData.bio || '',
-          searchType: 'stage',
         });
-        setLocations(candidateData.target_locations || []);
+        // Charger les types de contrat recherchés
+        setContractTypes(candidateData.contract_types_sought?.length > 0 
+          ? candidateData.contract_types_sought 
+          : ['stage']);
+        // Convertir les strings en LocationHierarchy
+        const locationHierarchies = (candidateData.target_locations || []).map((loc: string) => {
+          // Essayer de parser comme ville française, sinon créer une hiérarchie simple
+          const hierarchy = getCityHierarchy(loc, 'FR');
+          return hierarchy || { city: loc, country: 'France' };
+        });
+        setLocations(locationHierarchies);
         setSkills(candidateData.skills || []);
 
         // Load CVs from candidate_cvs table
@@ -105,6 +124,20 @@ export default function CandidateProfilePage() {
         // Get default CV
         const defaultCv = await getDefaultCV(candidateData.id);
         setDefaultCV(defaultCv);
+
+        // Load notification settings
+        try {
+          const notifSettings = await getNotificationSettings(candidateData.id);
+          setNotificationSettings(notifSettings);
+        } catch (notifErr) {
+          console.error('Erreur chargement notifications:', notifErr);
+          // Valeurs par défaut si erreur
+          setNotificationSettings({
+            userId: candidateData.id,
+            emailMatchingOffers: true,
+            emailApplicationUpdates: true,
+          });
+        }
       } catch (err: any) {
         console.error('Erreur chargement profil:', err);
         setError('Erreur lors du chargement du profil');
@@ -116,9 +149,63 @@ export default function CandidateProfilePage() {
     loadProfile();
   }, [router]);
 
+  // Normalisation des URLs (ajoute https:// si manquant)
+  const normalizeUrl = (url: string, type: 'linkedin' | 'portfolio'): string => {
+    if (!url || url.trim() === '') return '';
+    
+    let normalized = url.trim();
+    
+    // Ajouter https:// si le protocole est manquant
+    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+      normalized = 'https://' + normalized;
+    }
+    
+    return normalized;
+  };
+
+  // Validation des liens
+  const validateUrl = (url: string, type: 'linkedin' | 'portfolio'): string | null => {
+    if (!url || url.trim() === '') return null; // Vide = OK (suppression)
+    
+    const normalized = normalizeUrl(url, type);
+    
+    try {
+      const parsed = new URL(normalized);
+      
+      if (type === 'linkedin') {
+        if (!parsed.hostname.includes('linkedin.com')) {
+          return 'Le lien doit être un profil LinkedIn (linkedin.com)';
+        }
+        if (!normalized.includes('/in/') && !normalized.includes('/company/')) {
+          return 'Format LinkedIn invalide. Utilisez: linkedin.com/in/votre-profil';
+        }
+      }
+      
+      if (type === 'portfolio') {
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          return 'Le lien doit commencer par http:// ou https://';
+        }
+      }
+      
+      return null;
+    } catch {
+      return 'URL invalide';
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!candidate) return;
+
+    // Valider les liens
+    const linkedinError = validateUrl(formData.linkedinUrl, 'linkedin');
+    const portfolioError = validateUrl(formData.portfolioUrl, 'portfolio');
+    
+    if (linkedinError || portfolioError) {
+      setLinkErrors({ linkedin: linkedinError || undefined, portfolio: portfolioError || undefined });
+      return;
+    }
+    setLinkErrors({});
 
     setSaving(true);
     setError(null);
@@ -133,10 +220,13 @@ export default function CandidateProfilePage() {
         specialization: formData.specialization,
         alternance_rhythm: formData.alternanceRhythm || undefined,
         available_from: formData.availableFrom || undefined,
-        target_locations: locations,
-        linkedin_url: formData.linkedinUrl || undefined,
-        portfolio_url: formData.portfolioUrl || undefined,
-        bio: formData.bio || undefined,
+        contract_types_sought: contractTypes,
+        // Convertir LocationHierarchy[] en string[] pour la sauvegarde
+        target_locations: locations.map(loc => loc.city || loc.region || loc.country || '').filter(Boolean),
+        // Normaliser les URLs ou envoyer null pour suppression
+        linkedin_url: formData.linkedinUrl?.trim() ? normalizeUrl(formData.linkedinUrl, 'linkedin') : null,
+        portfolio_url: formData.portfolioUrl?.trim() ? normalizeUrl(formData.portfolioUrl, 'portfolio') : null,
+        bio: formData.bio?.trim() || null,
         skills: skills.length > 0 ? skills : undefined,
       });
 
@@ -158,20 +248,6 @@ export default function CandidateProfilePage() {
       ...formData,
       [e.target.name]: e.target.value,
     });
-  };
-
-  const handleAddLocation = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && locationInput.trim()) {
-      e.preventDefault();
-      if (!locations.includes(locationInput.trim())) {
-        setLocations([...locations, locationInput.trim()]);
-      }
-      setLocationInput('');
-    }
-  };
-
-  const handleRemoveLocation = (loc: string) => {
-    setLocations(locations.filter(l => l !== loc));
   };
 
   const handleAddSkill = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -203,11 +279,36 @@ export default function CandidateProfilePage() {
       linkedinUrl: candidate.linkedin_url || '',
       portfolioUrl: candidate.portfolio_url || '',
       bio: candidate.bio || '',
-      searchType: 'stage',
     });
-    setLocations(candidate.target_locations || []);
+    setContractTypes(candidate.contract_types_sought?.length > 0 
+      ? candidate.contract_types_sought 
+      : ['stage']);
+    // Convertir les strings en LocationHierarchy
+    const locationHierarchies = (candidate.target_locations || []).map((loc: string) => {
+      const hierarchy = getCityHierarchy(loc, 'FR');
+      return hierarchy || { city: loc, country: 'France' };
+    });
+    setLocations(locationHierarchies);
     setSkills(candidate.skills || []);
+    setLinkErrors({});
     setIsEditing(false);
+  };
+
+  const handleToggleNotification = async (field: 'emailMatchingOffers' | 'emailApplicationUpdates') => {
+    if (!candidate || !notificationSettings) return;
+    
+    setSavingNotifications(true);
+    try {
+      const newValue = !notificationSettings[field];
+      const updated = await updateNotificationSettings(candidate.id, {
+        [field]: newValue,
+      });
+      setNotificationSettings(updated);
+    } catch (err) {
+      console.error('Erreur mise à jour notifications:', err);
+    } finally {
+      setSavingNotifications(false);
+    }
   };
 
   if (loading) {
@@ -261,19 +362,15 @@ export default function CandidateProfilePage() {
                   {formData.firstName} {formData.lastName}
                 </h1>
                 <p className="text-gray-600">{formData.email}</p>
-                <div className="flex items-center gap-4 mt-2">
-                  {formData.searchType && (
-                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                      formData.searchType === 'stage' ? 'bg-blue-100 text-blue-700' :
-                      formData.searchType === 'alternance' ? 'bg-purple-100 text-purple-700' :
-                      'bg-indigo-100 text-indigo-700'
+                <div className="flex items-center gap-4 mt-2 flex-wrap">
+                  {contractTypes.map((type) => (
+                    <span key={type} className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                      type === 'stage' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
                     }`}>
                       <Briefcase className="h-3.5 w-3.5" />
-                      {formData.searchType === 'stage' ? 'Recherche Stage' :
-                       formData.searchType === 'alternance' ? 'Recherche Alternance' :
-                       'Stage & Alternance'}
+                      {type === 'stage' ? 'Stage' : 'Alternance'}
                     </span>
-                  )}
+                  ))}
                   {formData.availableFrom && (
                     <span className="inline-flex items-center gap-1 text-sm text-gray-600">
                       <Clock className="h-3.5 w-3.5" />
@@ -484,45 +581,81 @@ export default function CandidateProfilePage() {
                 </h2>
                 
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Type de recherche</label>
+                    <div className="flex flex-wrap gap-3">
+                      <label className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg cursor-pointer transition ${
+                        contractTypes.includes('stage')
+                          ? 'bg-blue-50 border-blue-500 text-blue-700'
+                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      } ${!isEditing ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={contractTypes.includes('stage')}
+                          onChange={(e) => {
+                            if (!isEditing) return;
+                            if (e.target.checked) {
+                              setContractTypes([...contractTypes, 'stage']);
+                            } else {
+                              // Ne pas permettre de tout décocher
+                              if (contractTypes.length > 1) {
+                                setContractTypes(contractTypes.filter(t => t !== 'stage'));
+                              }
+                            }
+                          }}
+                          disabled={!isEditing}
+                          className="sr-only"
+                        />
+                        <Briefcase className="h-4 w-4" />
+                        Stage
+                      </label>
+                      <label className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg cursor-pointer transition ${
+                        contractTypes.includes('alternance')
+                          ? 'bg-purple-50 border-purple-500 text-purple-700'
+                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      } ${!isEditing ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={contractTypes.includes('alternance')}
+                          onChange={(e) => {
+                            if (!isEditing) return;
+                            if (e.target.checked) {
+                              setContractTypes([...contractTypes, 'alternance']);
+                            } else {
+                              // Ne pas permettre de tout décocher
+                              if (contractTypes.length > 1) {
+                                setContractTypes(contractTypes.filter(t => t !== 'alternance'));
+                              }
+                            }
+                          }}
+                          disabled={!isEditing}
+                          className="sr-only"
+                        />
+                        <GraduationCap className="h-4 w-4" />
+                        Alternance
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Sélectionnez un ou plusieurs types</p>
+                  </div>
+                    
+                  {contractTypes.includes('alternance') && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Type de recherche</label>
-                      <select
-                        name="searchType"
-                        value={formData.searchType}
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Rythme d'alternance</label>
+                      <input
+                        name="alternanceRhythm"
+                        type="text"
+                        value={formData.alternanceRhythm}
                         onChange={handleChange}
                         disabled={!isEditing}
+                        placeholder="Ex: 3 jours / 2 jours"
                         className={`w-full px-4 py-2.5 border rounded-lg transition ${
                           isEditing
                             ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
                             : 'bg-gray-50 border-gray-200 text-gray-700'
                         }`}
-                      >
-                        <option value="stage">Stage</option>
-                        <option value="alternance">Alternance</option>
-                        <option value="both">Stage et Alternance</option>
-                      </select>
+                      />
                     </div>
-                    
-                    {(formData.searchType === 'alternance' || formData.searchType === 'both') && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Rythme d'alternance</label>
-                        <input
-                          name="alternanceRhythm"
-                          type="text"
-                          value={formData.alternanceRhythm}
-                          onChange={handleChange}
-                          disabled={!isEditing}
-                          placeholder="Ex: 3 jours / 2 jours"
-                          className={`w-full px-4 py-2.5 border rounded-lg transition ${
-                            isEditing
-                              ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
-                              : 'bg-gray-50 border-gray-200 text-gray-700'
-                          }`}
-                        />
-                      </div>
-                    )}
-                  </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -545,55 +678,35 @@ export default function CandidateProfilePage() {
 
                   {/* Localisations souhaitées */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      <MapPin className="inline h-4 w-4 mr-1 text-gray-400" />
-                      Localisations souhaitées
-                    </label>
                     {isEditing ? (
-                      <div>
-                        <input
-                          type="text"
-                          value={locationInput}
-                          onChange={(e) => setLocationInput(e.target.value)}
-                          onKeyDown={handleAddLocation}
-                          placeholder="Tapez une ville et appuyez sur Entrée"
-                          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        {locations.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {locations.map((loc, index) => (
-                              <span
-                                key={index}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm"
-                              >
-                                <MapPin className="h-3 w-3" />
-                                {loc}
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveLocation(loc)}
-                                  className="hover:bg-blue-200 rounded-full p-0.5"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <MultiLocationAutocomplete
+                        values={locations}
+                        onChange={setLocations}
+                        label="Localisations souhaitées"
+                        placeholder="Ajouter une localisation..."
+                        maxLocations={10}
+                        allowedTypes={['city', 'region', 'country']}
+                      />
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {locations.map((loc, index) => (
-                          <span
-                            key={index}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm"
-                          >
-                            <MapPin className="h-3 w-3" />
-                            {loc}
-                          </span>
-                        ))}
-                        {locations.length === 0 && (
-                          <span className="text-gray-500 text-sm">Aucune localisation définie</span>
-                        )}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <MapPin className="inline h-4 w-4 mr-1 text-gray-400" />
+                          Localisations souhaitées
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {locations.map((loc, index) => (
+                            <span
+                              key={index}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm"
+                            >
+                              <MapPin className="h-3 w-3" />
+                              {loc.city || loc.region || loc.country || 'Non spécifié'}
+                            </span>
+                          ))}
+                          {locations.length === 0 && (
+                            <span className="text-gray-500 text-sm">Aucune localisation définie</span>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -612,11 +725,22 @@ export default function CandidateProfilePage() {
                   <textarea
                     name="bio"
                     value={formData.bio}
-                    onChange={handleChange}
+                    onChange={(e) => {
+                      handleChange(e);
+                      // Auto-resize
+                      e.target.style.height = 'auto';
+                      e.target.style.height = e.target.scrollHeight + 'px';
+                    }}
+                    onFocus={(e) => {
+                      // Ajuster la taille au focus
+                      e.target.style.height = 'auto';
+                      e.target.style.height = e.target.scrollHeight + 'px';
+                    }}
                     disabled={!isEditing}
-                    rows={4}
+                    rows={2}
+                    style={{ minHeight: '80px', maxHeight: '400px', overflow: 'auto' }}
                     placeholder="Présentez-vous en quelques mots : vos motivations, vos objectifs professionnels..."
-                    className={`w-full px-4 py-2.5 border rounded-lg transition ${
+                    className={`w-full px-4 py-2.5 border rounded-lg transition resize-none ${
                       isEditing
                         ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
                         : 'bg-gray-50 border-gray-200 text-gray-700'
@@ -690,14 +814,24 @@ export default function CandidateProfilePage() {
                       LinkedIn
                     </label>
                     {isEditing ? (
-                      <input
-                        name="linkedinUrl"
-                        type="url"
-                        value={formData.linkedinUrl}
-                        onChange={handleChange}
-                        placeholder="https://linkedin.com/in/..."
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      />
+                      <div>
+                        <input
+                          name="linkedinUrl"
+                          type="url"
+                          value={formData.linkedinUrl}
+                          onChange={handleChange}
+                          placeholder="https://linkedin.com/in/votre-profil"
+                          className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm ${
+                            linkErrors.linkedin ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                          }`}
+                        />
+                        {linkErrors.linkedin && (
+                          <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3" />
+                            {linkErrors.linkedin}
+                          </p>
+                        )}
+                      </div>
                     ) : formData.linkedinUrl ? (
                       <a
                         href={formData.linkedinUrl}
@@ -719,14 +853,24 @@ export default function CandidateProfilePage() {
                       Portfolio / Site web
                     </label>
                     {isEditing ? (
-                      <input
-                        name="portfolioUrl"
-                        type="url"
-                        value={formData.portfolioUrl}
-                        onChange={handleChange}
-                        placeholder="https://..."
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      />
+                      <div>
+                        <input
+                          name="portfolioUrl"
+                          type="url"
+                          value={formData.portfolioUrl}
+                          onChange={handleChange}
+                          placeholder="https://mon-portfolio.com"
+                          className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm ${
+                            linkErrors.portfolio ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                          }`}
+                        />
+                        {linkErrors.portfolio && (
+                          <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3" />
+                            {linkErrors.portfolio}
+                          </p>
+                        )}
+                      </div>
                     ) : formData.portfolioUrl ? (
                       <a
                         href={formData.portfolioUrl}
@@ -802,6 +946,76 @@ export default function CandidateProfilePage() {
                     </Link>
                   </div>
                 )}
+              </div>
+
+              {/* Notifications */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                  <Bell className="h-5 w-5 text-blue-600" />
+                  Notifications
+                </h2>
+                
+                <div className="space-y-4">
+                  {/* Alertes offres correspondantes */}
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div className="flex-1 pr-4">
+                      <div className="font-medium text-gray-900">Alertes offres correspondantes</div>
+                      <div className="text-sm text-gray-600">
+                        Recevez des emails pour les nouvelles offres qui correspondent à votre profil
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggleNotification('emailMatchingOffers')}
+                      disabled={savingNotifications}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition flex-shrink-0 ${
+                        notificationSettings?.emailMatchingOffers ? 'bg-blue-600' : 'bg-gray-300'
+                      } ${savingNotifications ? 'opacity-50' : ''}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                          notificationSettings?.emailMatchingOffers ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Notifications candidatures */}
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div className="flex-1 pr-4">
+                      <div className="font-medium text-gray-900">Mises à jour de candidatures</div>
+                      <div className="text-sm text-gray-600">
+                        Recevez des notifications quand le statut de vos candidatures change
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggleNotification('emailApplicationUpdates')}
+                      disabled={savingNotifications}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition flex-shrink-0 ${
+                        notificationSettings?.emailApplicationUpdates ? 'bg-blue-600' : 'bg-gray-300'
+                      } ${savingNotifications ? 'opacity-50' : ''}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                          notificationSettings?.emailApplicationUpdates ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Lien vers recherches sauvegardées */}
+                  <div className="pt-2 border-t border-gray-200">
+                    <p className="text-sm text-gray-600 mb-3">
+                      Pour configurer des alertes sur des critères de recherche spécifiques, gérez vos recherches sauvegardées.
+                    </p>
+                    <Link
+                      href="/candidate/searches"
+                      className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                    >
+                      Gérer mes recherches sauvegardées
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </div>
               </div>
 
               {/* RGPD */}

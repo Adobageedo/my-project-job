@@ -1,8 +1,12 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import JobCard from '@/components/job/JobCard';
 import { jobOffers } from '@/data';
+import { getRecentOffersForHomepage } from '@/services/offerService';
 import { 
   ArrowRight, 
   Building2, 
@@ -21,10 +25,38 @@ import {
   HelpCircle,
   ChevronDown,
   FileText,
+  MapPin,
+  Calendar,
+  Loader2,
 } from 'lucide-react';
+
+interface RecentOffer {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  contractType: string;
+  startDate: string | null;
+}
 
 export default function Home() {
   const recentOffers = jobOffers.slice(0, 6);
+  const [recentOffersTable, setRecentOffersTable] = useState<RecentOffer[]>([]);
+  const [isLoadingOffers, setIsLoadingOffers] = useState(true);
+
+  useEffect(() => {
+    const loadRecentOffers = async () => {
+      try {
+        const offers = await getRecentOffersForHomepage(5);
+        setRecentOffersTable(offers);
+      } catch (error) {
+        console.error('Error loading recent offers:', error);
+      } finally {
+        setIsLoadingOffers(false);
+      }
+    };
+    loadRecentOffers();
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#faf9f7]">
@@ -142,10 +174,86 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
-            {recentOffers.map((offer) => (
-              <JobCard key={offer.id} offer={offer} />
-            ))}
+          {/* Tableau des 5 offres les plus récentes */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-12">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">Poste</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">Entreprise</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">Localisation</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">Type</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">Début</th>
+                    <th className="px-6 py-4"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {isLoadingOffers ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center">
+                        <Loader2 className="h-6 w-6 text-blue-600 animate-spin mx-auto" />
+                      </td>
+                    </tr>
+                  ) : recentOffersTable.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                        Aucune offre disponible pour le moment
+                      </td>
+                    </tr>
+                  ) : (
+                    recentOffersTable.map((offer) => (
+                      <tr key={offer.id} className="hover:bg-slate-50 transition">
+                        <td className="px-6 py-4">
+                          <Link href={`/candidate/offers/${offer.id}`} className="font-medium text-slate-900 hover:text-blue-600 transition">
+                            {offer.title}
+                          </Link>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2 text-slate-600">
+                            <Building2 className="h-4 w-4 text-slate-400" />
+                            {offer.company}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2 text-slate-600">
+                            <MapPin className="h-4 w-4 text-slate-400" />
+                            {offer.location}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
+                            offer.contractType === 'Stage' 
+                              ? 'bg-blue-100 text-blue-700' 
+                              : 'bg-purple-100 text-purple-700'
+                          }`}>
+                            {offer.contractType}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2 text-slate-600 text-sm">
+                            <Calendar className="h-4 w-4 text-slate-400" />
+                            {offer.startDate 
+                              ? new Date(offer.startDate).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
+                              : 'Flexible'
+                            }
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <Link 
+                            href={`/candidate/offers/${offer.id}`}
+                            className="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1"
+                          >
+                            Voir
+                            <ArrowRight className="h-4 w-4" />
+                          </Link>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div className="text-center">

@@ -367,12 +367,9 @@ export interface SavedSearch {
   createdAt: string;
 }
 
-// NotificationSettings type
+// NotificationSettings type (simplifié)
 export interface NotificationSettings {
   userId: string;
-  emailOnNewOffer: boolean;
-  emailOnApplicationStatus: boolean;
-  emailOnNewApplication: boolean;
-  frequency: 'immediate' | 'daily' | 'weekly' | 'never';
-  pauseUntil?: string | null;
+  emailMatchingOffers: boolean;      // Alertes pour les offres correspondant au profil
+  emailApplicationUpdates: boolean;  // Notifications pour les changements de statut de candidatures
 }

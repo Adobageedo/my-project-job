@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import CVUpload from '@/components/cv/CVUpload';
+import { LocationAutocomplete } from '@/components/shared/LocationAutocomplete';
+import { LocationHierarchy, formatLocationHierarchy } from '@/data/locations';
 import { 
   User, Phone, GraduationCap, MapPin, Calendar, 
   ChevronRight, ChevronLeft, Upload, X, Globe, Linkedin, Briefcase, CheckCircle,
@@ -16,7 +18,12 @@ import { completeOnboarding, uploadCV } from '@/services/candidateService';
 
 export default function CandidateOnboarding() {
   const router = useRouter();
-  const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const { user, refreshCandidate } = useAuth();
+  
+  // Lire le returnUrl pour rediriger après l'onboarding
+  const returnUrlParam = searchParams?.get('returnUrl');
+  const returnUrl = returnUrlParam ? decodeURIComponent(returnUrlParam) : null;
   const [currentStep, setCurrentStep] = useState(1);
   const [uploadedCV, setUploadedCV] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -28,12 +35,11 @@ export default function CandidateOnboarding() {
     school: '',
     studyLevel: 'bac+4',
     specialization: '',
-    locations: [] as string[],
-    locationInput: '',
+    locations: [] as LocationHierarchy[],
     availableFrom: '',
     alternanceRhythm: '',
     contractType: 'stage',
-    searchType: 'stage' as 'stage' | 'alternance' | 'both',
+    contractTypes: ['stage'] as string[],
     linkedinUrl: '',
     portfolioUrl: '',
     bio: '',
@@ -63,15 +69,20 @@ export default function CandidateOnboarding() {
       if (parsedData.school) { updated.school = parsedData.school; fieldsUpdated.push('school'); }
       if (parsedData.studyLevel) { updated.studyLevel = parsedData.studyLevel; fieldsUpdated.push('studyLevel'); }
       if (parsedData.specialization) { updated.specialization = parsedData.specialization; fieldsUpdated.push('specialization'); }
-      if (parsedData.locations && parsedData.locations.length > 0) { updated.locations = parsedData.locations; fieldsUpdated.push('locations'); }
+      if (parsedData.locations && parsedData.locations.length > 0) { 
+        // Convertir les strings en LocationHierarchy
+        updated.locations = parsedData.locations.map(loc => ({ city: loc, region: '', country: 'France', continent: 'Europe' })); 
+        fieldsUpdated.push('locations'); 
+      }
       if (parsedData.skills && parsedData.skills.length > 0) { updated.skills = parsedData.skills; fieldsUpdated.push('skills'); }
       if (parsedData.linkedinUrl) { updated.linkedinUrl = parsedData.linkedinUrl; fieldsUpdated.push('linkedinUrl'); }
       if (parsedData.portfolioUrl) { updated.portfolioUrl = parsedData.portfolioUrl; fieldsUpdated.push('portfolioUrl'); }
       if (parsedData.bio) { updated.bio = parsedData.bio; fieldsUpdated.push('bio'); }
       if (parsedData.contractType) { 
-        // Map contractType to searchType
-        updated.searchType = parsedData.contractType === 'apprentissage' ? 'alternance' : parsedData.contractType;
-        fieldsUpdated.push('searchType'); 
+        // Map contractType to contractTypes array
+        const contractType = parsedData.contractType === 'apprentissage' ? 'alternance' : parsedData.contractType;
+        updated.contractTypes = [contractType];
+        fieldsUpdated.push('contractTypes'); 
       }
       if (parsedData.availableFrom) { updated.availableFrom = parsedData.availableFrom; fieldsUpdated.push('availableFrom'); }
       
@@ -96,24 +107,27 @@ export default function CandidateOnboarding() {
     );
   };
 
-  const handleAddLocation = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && formData.locationInput.trim()) {
-      e.preventDefault();
-      if (!formData.locations.includes(formData.locationInput.trim())) {
-        setFormData({
-          ...formData,
-          locations: [...formData.locations, formData.locationInput.trim()],
-          locationInput: '',
-        });
-      }
+  const handleAddLocation = (location: LocationHierarchy | null) => {
+    if (!location) return;
+    // Éviter les doublons
+    const isDuplicate = formData.locations.some(l => 
+      l.city === location.city && 
+      l.region === location.region && 
+      l.country === location.country
+    );
+    if (!isDuplicate && formData.locations.length < 5) {
+      setFormData(prev => ({
+        ...prev,
+        locations: [...prev.locations, location],
+      }));
     }
   };
 
-  const handleRemoveLocation = (location: string) => {
-    setFormData({
-      ...formData,
-      locations: formData.locations.filter(loc => loc !== location),
-    });
+  const handleRemoveLocation = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      locations: prev.locations.filter((_, i) => i !== index),
+    }));
   };
 
   const handleAddSkill = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -177,6 +191,11 @@ export default function CandidateOnboarding() {
       }
 
       // Use service function to complete onboarding (without cvUrl since it's now in candidate_cvs)
+      // Convertir les LocationHierarchy en strings pour l'API
+      const locationsForApi = formData.locations.map(loc => 
+        loc.city || loc.region || loc.country || loc.continent || ''
+      ).filter(Boolean);
+
       const result = await completeOnboarding(user.id, {
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -186,11 +205,12 @@ export default function CandidateOnboarding() {
         specialization: formData.specialization,
         alternanceRhythm: formData.alternanceRhythm,
         availableFrom: formData.availableFrom,
-        locations: formData.locations,
+        locations: locationsForApi,
         linkedinUrl: formData.linkedinUrl,
         portfolioUrl: formData.portfolioUrl,
         bio: formData.bio,
         skills: formData.skills,
+        contractTypes: formData.contractTypes,
       });
 
       if (!result.success) {
@@ -198,8 +218,12 @@ export default function CandidateOnboarding() {
         throw new Error(result.error);
       }
 
-      // Redirection vers le dashboard avec paramètre onboarding=complete
-      router.push('/candidate/dashboard?onboarding=complete');
+      // Rafraîchir le profil candidat
+      await refreshCandidate();
+      
+      // Redirection vers l'URL demandée ou le dashboard par défaut
+      const redirectTo = returnUrl || '/candidate/dashboard?onboarding=complete';
+      router.push(redirectTo);
     } catch (error) {
       console.error('Erreur onboarding:', error);
       setIsLoading(false);
@@ -314,83 +338,79 @@ export default function CandidateOnboarding() {
                     Que recherchez-vous ?
                   </h1>
                   <p className="text-gray-600">
-                    Sélectionnez le type d'opportunité qui vous intéresse
+                    Sélectionnez un ou plusieurs types d'opportunités
                   </p>
                 </div>
 
                 <div className="space-y-4">
+                  {/* Stage */}
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, searchType: 'stage' })}
+                    onClick={() => {
+                      const hasStage = formData.contractTypes.includes('stage');
+                      if (hasStage && formData.contractTypes.length > 1) {
+                        setFormData({ ...formData, contractTypes: formData.contractTypes.filter(t => t !== 'stage') });
+                      } else if (!hasStage) {
+                        setFormData({ ...formData, contractTypes: [...formData.contractTypes, 'stage'] });
+                      }
+                    }}
                     className={`w-full p-6 border-2 rounded-xl text-left transition-all ${
-                      formData.searchType === 'stage'
+                      formData.contractTypes.includes('stage')
                         ? 'border-blue-500 bg-blue-50'
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                          Stage
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          Stage de fin d'études, stage de césure ou stage de découverte
-                        </p>
+                      <div className="flex items-center gap-4">
+                        <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition ${
+                          formData.contractTypes.includes('stage') ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
+                        }`}>
+                          {formData.contractTypes.includes('stage') && <Check className="h-4 w-4 text-white" />}
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-1">Stage</h3>
+                          <p className="text-sm text-gray-600">Stage de fin d'études, stage de césure ou stage de découverte</p>
+                        </div>
                       </div>
-                      {formData.searchType === 'stage' && (
-                        <CheckCircle className="h-6 w-6 text-blue-600 flex-shrink-0" />
-                      )}
                     </div>
                   </button>
 
+                  {/* Alternance */}
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, searchType: 'alternance' })}
+                    onClick={() => {
+                      const hasAlternance = formData.contractTypes.includes('alternance');
+                      if (hasAlternance && formData.contractTypes.length > 1) {
+                        setFormData({ ...formData, contractTypes: formData.contractTypes.filter(t => t !== 'alternance') });
+                      } else if (!hasAlternance) {
+                        setFormData({ ...formData, contractTypes: [...formData.contractTypes, 'alternance'] });
+                      }
+                    }}
                     className={`w-full p-6 border-2 rounded-xl text-left transition-all ${
-                      formData.searchType === 'alternance'
-                        ? 'border-blue-500 bg-blue-50'
+                      formData.contractTypes.includes('alternance')
+                        ? 'border-purple-500 bg-purple-50'
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                          Alternance
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          Contrat d'apprentissage ou de professionnalisation
-                        </p>
+                      <div className="flex items-center gap-4">
+                        <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition ${
+                          formData.contractTypes.includes('alternance') ? 'bg-purple-600 border-purple-600' : 'border-gray-300'
+                        }`}>
+                          {formData.contractTypes.includes('alternance') && <Check className="h-4 w-4 text-white" />}
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-1">Alternance</h3>
+                          <p className="text-sm text-gray-600">Contrat d'apprentissage ou de professionnalisation</p>
+                        </div>
                       </div>
-                      {formData.searchType === 'alternance' && (
-                        <CheckCircle className="h-6 w-6 text-blue-600 flex-shrink-0" />
-                      )}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, searchType: 'both' })}
-                    className={`w-full p-6 border-2 rounded-xl text-left transition-all ${
-                      formData.searchType === 'both'
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                          Les deux
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          Je suis ouvert aux stages et aux alternances
-                        </p>
-                      </div>
-                      {formData.searchType === 'both' && (
-                        <CheckCircle className="h-6 w-6 text-blue-600 flex-shrink-0" />
-                      )}
                     </div>
                   </button>
                 </div>
+
+                <p className="mt-4 text-sm text-gray-500 text-center">
+                  Sélectionnez au moins un type de contrat. Vous pouvez en sélectionner plusieurs.
+                </p>
 
                 <div className="mt-8 flex gap-4">
                   <button
@@ -403,7 +423,8 @@ export default function CandidateOnboarding() {
                   <button
                     type="button"
                     onClick={handleNextStep}
-                    className="flex-1 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-semibold flex items-center justify-center gap-2"
+                    disabled={formData.contractTypes.length === 0}
+                    className="flex-1 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-semibold flex items-center justify-center gap-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
                     Continuer
                     <ChevronRight className="h-5 w-5" />
@@ -571,35 +592,24 @@ export default function CandidateOnboarding() {
 
                   {/* Localisations */}
                   <div>
-                    <label htmlFor="locationInput" className="block text-sm font-medium text-gray-700 mb-2">
-                      Localisations souhaitées * (appuyez sur Entrée pour ajouter)
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Localisations souhaitées * (max 5)
                       <ParsedIndicator field="locations" />
                     </label>
-                    <div className="relative">
-                      <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        id="locationInput"
-                        name="locationInput"
-                        type="text"
-                        value={formData.locationInput}
-                        onChange={handleChange}
-                        onKeyDown={handleAddLocation}
-                        className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="Paris, Lyon, Marseille..."
-                      />
-                    </div>
+                    
+                    {/* Tags des localisations sélectionnées */}
                     {formData.locations.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {formData.locations.map((location) => (
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        {formData.locations.map((location, index) => (
                           <span
-                            key={location}
+                            key={`${location.city || location.region || location.country}-${index}`}
                             className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm ${parsedFields.includes('locations') ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}
                           >
                             <MapPin className="h-3 w-3" />
-                            {location}
+                            {formatLocationHierarchy(location, 'short')}
                             <button
                               type="button"
-                              onClick={() => handleRemoveLocation(location)}
+                              onClick={() => handleRemoveLocation(index)}
                               className="hover:bg-blue-200 rounded-full p-0.5"
                             >
                               <X className="w-3 h-3" />
@@ -607,6 +617,20 @@ export default function CandidateOnboarding() {
                           </span>
                         ))}
                       </div>
+                    )}
+                    
+                    {/* Input d'ajout avec autocomplete */}
+                    {formData.locations.length < 5 && (
+                      <LocationAutocomplete
+                        value={null}
+                        onChange={handleAddLocation}
+                        placeholder="Rechercher une ville, région, pays..."
+                        allowedTypes={['city', 'region', 'country', 'continent']}
+                      />
+                    )}
+                    
+                    {formData.locations.length >= 5 && (
+                      <p className="text-sm text-amber-600">Maximum 5 localisations atteint</p>
                     )}
                   </div>
 

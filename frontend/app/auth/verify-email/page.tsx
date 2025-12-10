@@ -27,8 +27,9 @@ function VerifyEmailContent() {
         
         if (user?.email_confirmed_at) {
           setVerified(true);
+          // Rediriger vers l'onboarding candidat après vérification de l'email
           setTimeout(() => {
-            router.push('/login?verified=true');
+            router.push('/candidate/onboarding?verified=true');
           }, 2000);
         }
       } catch (error) {
@@ -178,10 +179,10 @@ function VerifyEmailContent() {
         {verified && (
           <div className="flex justify-center">
             <button
-              onClick={() => router.push('/login')}
+              onClick={() => router.push('/candidate/onboarding')}
               className="px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors inline-flex items-center gap-2"
             >
-              Me connecter
+              Compléter mon profil
               <ArrowRight className="w-5 h-5" />
             </button>
           </div>

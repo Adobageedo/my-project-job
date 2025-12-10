@@ -225,15 +225,37 @@ export default function OfferDetailPage() {
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
         <NavBar role="candidate" />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-slate-900 mb-4">Offre non trouvée</h1>
-            <button
-              onClick={() => router.back()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
-            >
-              Retour
-            </button>
+        <div className="flex-1 flex items-center justify-center py-12 px-4">
+          <div className="max-w-md w-full text-center">
+            <div className="inline-flex items-center justify-center w-24 h-24 bg-gray-100 rounded-full mb-6">
+              <FileText className="h-12 w-12 text-gray-400" />
+            </div>
+            
+            <h1 className="text-3xl font-bold text-gray-900 mb-3">
+              Offre introuvable
+            </h1>
+            
+            <p className="text-gray-600 mb-8">
+              Cette offre n'existe plus ou a été supprimée par l'entreprise. 
+              Elle a peut-être déjà été pourvue ou n'est plus disponible.
+            </p>
+
+            <div className="space-y-3">
+              <Link
+                href="/candidate/offers"
+                className="w-full py-3 px-6 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-semibold flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="h-5 w-5" />
+                Voir toutes les offres
+              </Link>
+            </div>
+
+            <div className="mt-8 p-4 bg-blue-50 rounded-xl">
+              <p className="text-sm text-blue-800">
+                <strong>Conseil :</strong> Créez une alerte pour être notifié 
+                dès qu'une offre similaire est publiée !
+              </p>
+            </div>
           </div>
         </div>
         <Footer />
@@ -297,12 +319,6 @@ export default function OfferDetailPage() {
                     title={isSaved ? 'Retirer des favoris' : 'Ajouter aux favoris'}
                   >
                     <Heart className={`h-5 w-5 ${isSaved ? 'fill-current' : ''}`} />
-                  </button>
-                  <button
-                    className="p-3 rounded-full bg-white/20 hover:bg-white/30 transition"
-                    title="Partager"
-                  >
-                    <Share2 className="h-5 w-5" />
                   </button>
                 </div>
               </div>
@@ -542,7 +558,7 @@ export default function OfferDetailPage() {
 
                     {/* Withdraw Confirmation Modal */}
                     {showWithdrawConfirm && (
-                      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                      <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                         <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
                           <div className="flex items-start gap-4 mb-4">
                             <div className="p-2 bg-amber-100 rounded-full">

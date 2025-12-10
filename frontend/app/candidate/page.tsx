@@ -377,20 +377,6 @@ export default function CandidateDashboard() {
                   </div>
                 )}
               </div>
-
-              {/* Notifications */}
-              <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200 p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <Bell className="h-5 w-5 text-amber-600" />
-                  <h2 className="font-semibold text-amber-900">Notifications</h2>
-                </div>
-                <p className="text-sm text-amber-800">
-                  Activez les notifications pour être alerté des nouvelles offres correspondant à votre profil.
-                </p>
-                <button className="mt-3 text-sm font-medium text-amber-700 hover:text-amber-800">
-                  Configurer →
-                </button>
-              </div>
             </div>
           </div>
 

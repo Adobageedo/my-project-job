@@ -369,3 +369,7 @@ Variables d'environnement :
 ---
 
 **Créé avec** ❤️ **pour démontrer une plateforme professionnelle complète**
+
+
+rediririger onboarding a la confirmation mail
+ameliorer onboarding form avoir la meme chose que dans profil

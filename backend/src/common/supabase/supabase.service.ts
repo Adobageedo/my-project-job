@@ -40,10 +40,10 @@ export class SupabaseService {
 
   async getUserProfile(userId: string) {
     const { data, error } = await this.supabase
-      .from('user_profiles')
-      .select('roles')
+      .from('users')
+      .select('role, company_roles')
       .eq('id', userId)
-      .limit(1);
+      .single();
 
     if (error) throw error;
 

@@ -10,22 +10,16 @@ import { useCandidate } from '@/contexts/AuthContext';
 import { 
   getSavedOffers, 
   unsaveOffer, 
-  updateSavedOfferNotes,
   FrontendSavedOffer 
 } from '@/services/savedOfferService';
 import { 
   Bookmark, 
   Search, 
   Trash2, 
-  StickyNote, 
   Calendar,
   MapPin,
   Building2,
   ExternalLink,
-  Edit3,
-  Check,
-  Loader2,
-  Heart,
   Briefcase,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -44,9 +38,6 @@ export default function SavedOffersPage() {
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   
-  // États pour les notes
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [noteText, setNoteText] = useState('');
 
   useEffect(() => {
     if (candidateId) {
@@ -85,22 +76,6 @@ export default function SavedOffersPage() {
     }
   };
 
-  const handleSaveNote = async (offerId: string) => {
-    if (!candidateId) return;
-    
-    try {
-      const result = await updateSavedOfferNotes(candidateId, offerId, noteText);
-      if (result.success) {
-        setSavedOffers(prev => prev.map(s => 
-          s.offer.id === offerId ? { ...s, notes: noteText } : s
-        ));
-        setEditingNoteId(null);
-        setNoteText('');
-      }
-    } catch (error) {
-      console.error('Erreur lors de la sauvegarde de la note:', error);
-    }
-  };
 
   const filteredOffers = savedOffers.filter(saved => 
     searchTerm === '' ||
@@ -129,7 +104,7 @@ export default function SavedOffersPage() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
               <div className="text-3xl font-bold text-blue-600">{savedOffers.length}</div>
               <div className="text-gray-600">Offres sauvegardées</div>
@@ -139,12 +114,6 @@ export default function SavedOffersPage() {
                 {savedOffers.filter(s => s.offer.status === 'active').length}
               </div>
               <div className="text-gray-600">Offres actives</div>
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-              <div className="text-3xl font-bold text-purple-600">
-                {savedOffers.filter(s => s.notes).length}
-              </div>
-              <div className="text-gray-600">Avec notes</div>
             </div>
           </div>
 
@@ -241,63 +210,6 @@ export default function SavedOffersPage() {
                       </div>
                     </div>
 
-                    {/* Notes section */}
-                    <div className="mt-4 pt-4 border-t border-gray-100">
-                      {editingNoteId === saved.id ? (
-                        <div className="space-y-2">
-                          <textarea
-                            value={noteText}
-                            onChange={(e) => setNoteText(e.target.value)}
-                            placeholder="Ajouter une note personnelle..."
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                            rows={2}
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleSaveNote(saved.offer.id)}
-                              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition flex items-center gap-1"
-                            >
-                              <Check className="h-4 w-4" />
-                              Enregistrer
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingNoteId(null);
-                                setNoteText('');
-                              }}
-                              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition"
-                            >
-                              Annuler
-                            </button>
-                          </div>
-                        </div>
-                      ) : saved.notes ? (
-                        <div className="flex items-start gap-2">
-                          <StickyNote className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                          <p className="text-sm text-gray-600 flex-1">{saved.notes}</p>
-                          <button
-                            onClick={() => {
-                              setEditingNoteId(saved.id);
-                              setNoteText(saved.notes || '');
-                            }}
-                            className="p-1 hover:bg-gray-100 rounded transition"
-                          >
-                            <Edit3 className="h-4 w-4 text-gray-400" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setEditingNoteId(saved.id);
-                            setNoteText('');
-                          }}
-                          className="text-sm text-gray-500 hover:text-blue-600 flex items-center gap-1 transition"
-                        >
-                          <StickyNote className="h-4 w-4" />
-                          Ajouter une note
-                        </button>
-                      )}
-                    </div>
                   </div>
                 </div>
               ))}

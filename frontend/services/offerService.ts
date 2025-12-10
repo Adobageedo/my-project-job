@@ -1,4 +1,10 @@
 import { supabase } from '@/lib/supabase';
+import { 
+  getFromCache, 
+  setInCache, 
+  invalidateOffersCache,
+  cacheKeys 
+} from '@/lib/cache';
 
 // =====================================================
 // TYPES
@@ -939,6 +945,102 @@ export async function getAllOffers(): Promise<JobOffer[]> {
 export async function getAllOffersForCandidate(): Promise<FrontendJobOffer[]> {
   const { offers } = await searchOffers({ limit: 100 });
   return offers.map(mapOfferToFrontend);
+}
+
+/**
+ * Get recent offers from different companies for homepage
+ * Uses the denormalized homepage_offers table for fast, RLS-free access
+ * Falls back to offers table if homepage_offers is empty
+ * Results are cached for 5 minutes
+ */
+export async function getRecentOffersForHomepage(limit: number = 5): Promise<{
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  contractType: string;
+  startDate: string | null;
+}[]> {
+  // Vérifier le cache d'abord
+  const cacheKey = cacheKeys.homepageOffers();
+  const cached = getFromCache<{
+    id: string;
+    title: string;
+    company: string;
+    location: string;
+    contractType: string;
+    startDate: string | null;
+  }[]>(cacheKey, 'HOMEPAGE_OFFERS');
+  
+  if (cached) {
+    return cached;
+  }
+
+  // Try the optimized homepage_offers table first
+  const { data: homepageData, error: homepageError } = await supabase
+    .from('homepage_offers')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (!homepageError && homepageData && homepageData.length > 0) {
+    const result = homepageData.map(offer => ({
+      id: offer.id,
+      title: offer.title,
+      company: offer.company_name,
+      location: offer.location_city || 'France',
+      contractType: offer.contract_type === 'stage' ? 'Stage' : offer.contract_type === 'alternance' ? 'Alternance' : offer.contract_type,
+      startDate: offer.start_date,
+    }));
+    
+    // Mettre en cache
+    setInCache(cacheKey, 'HOMEPAGE_OFFERS', result);
+    return result;
+  }
+
+  // Fallback to offers table if homepage_offers is empty or doesn't exist
+  const { data, error } = await supabase
+    .from('offers')
+    .select(`
+      id,
+      title,
+      location_city,
+      contract_type,
+      start_date,
+      company_id,
+      companies!inner(name)
+    `)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error || !data) {
+    console.error('Error fetching recent offers:', error);
+    return [];
+  }
+
+  // Filter to get one offer per company
+  const seenCompanies = new Set<string>();
+  const uniqueOffers: typeof data = [];
+  
+  for (const offer of data) {
+    if (!seenCompanies.has(offer.company_id) && uniqueOffers.length < limit) {
+      seenCompanies.add(offer.company_id);
+      uniqueOffers.push(offer);
+    }
+  }
+
+  return uniqueOffers.map(offer => {
+    const company = offer.companies as unknown as { name: string } | null;
+    return {
+      id: offer.id,
+      title: offer.title,
+      company: company?.name || 'Entreprise',
+      location: offer.location_city || 'France',
+      contractType: offer.contract_type === 'stage' ? 'Stage' : offer.contract_type === 'alternance' ? 'Alternance' : offer.contract_type,
+      startDate: offer.start_date,
+    };
+  });
 }
 
 /**

@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import { Mail, Lock, Chrome, AlertCircle, Building2, Loader2, CheckCircle, ArrowRight, Clock } from 'lucide-react';
@@ -11,8 +10,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { checkThrottle, recordSuccess, formatWaitTime } from '@/lib/rateLimit';
 
 function LoginCompanyContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, isLoading: authLoading, setUserRole } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,15 +18,8 @@ function LoginCompanyContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
 
-  // URL de redirection après connexion
-  const redirectUrl = searchParams.get('redirect') || '/company/dashboard';
-
-  // Rediriger si déjà connecté en tant qu'entreprise
-  useEffect(() => {
-    if (!authLoading && user?.role === 'company') {
-      router.push(redirectUrl);
-    }
-  }, [user, authLoading, router, redirectUrl]);
+  // Note: La redirection est gérée automatiquement par AuthContext
+  // Après login réussi, AuthContext détecte le user et redirige vers le dashboard
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,13 +60,9 @@ function LoginCompanyContent() {
       // Enregistrer le rôle dans le contexte
       setUserRole('company');
 
-      // Afficher le succès
+      // Afficher le succès - AuthContext gérera la redirection automatiquement
       setLoginSuccess(true);
-
-      // Rediriger vers le dashboard après un court délai pour montrer l'animation
-      setTimeout(() => {
-        router.push(redirectUrl);
-      }, 800);
+      setIsLoading(false);
     } catch (err) {
       console.error('Erreur de connexion:', err);
       setError('Email ou mot de passe incorrect');
@@ -84,18 +70,8 @@ function LoginCompanyContent() {
     }
   };
 
-  // Affichage pendant le chargement initial
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex flex-col bg-gray-50">
-        <NavBar />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 text-purple-600 animate-spin" />
-        </div>
-        <Footer />
-      </div>
-    );
-  }
+  // Si déjà connecté, AuthContext affiche l'overlay et redirige
+  // La page reste visible en dessous de l'overlay
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">

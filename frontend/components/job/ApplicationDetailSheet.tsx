@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import {
   X,
@@ -15,14 +14,10 @@ import {
   GraduationCap,
   Clock,
   MessageSquare,
-  ChevronRight,
   Download,
-  ExternalLink,
-  Send,
   CheckCircle,
   XCircle,
   AlertCircle,
-  History,
   Eye,
   ArrowRight,
 } from 'lucide-react';
@@ -81,7 +76,6 @@ interface ApplicationDetailSheetProps {
   isOpen: boolean;
   onClose: () => void;
   onStatusChange?: (status: string) => void;
-  onAddNote?: (note: string) => void;
   viewMode: 'candidate' | 'company' | 'admin';
 }
 
@@ -135,41 +129,18 @@ export function ApplicationDetailSheet({
   isOpen,
   onClose,
   onStatusChange,
-  onAddNote,
   viewMode,
 }: ApplicationDetailSheetProps) {
-  const [activeTab, setActiveTab] = useState<'details' | 'history' | 'notes'>('details');
-  const [newNote, setNewNote] = useState('');
-  const [isSubmittingNote, setIsSubmittingNote] = useState(false);
-
   if (!isOpen) return null;
 
   const { candidate, offer, status } = application;
   const statusInfo = statusConfig[status] || statusConfig.pending;
 
-  const handleAddNote = async () => {
-    if (!newNote.trim() || !onAddNote) return;
-    
-    setIsSubmittingNote(true);
-    try {
-      await onAddNote(newNote);
-      setNewNote('');
-    } finally {
-      setIsSubmittingNote(false);
-    }
-  };
-
-  const tabs = [
-    { id: 'details', label: 'Détails', icon: <FileText className="h-4 w-4" /> },
-    { id: 'history', label: 'Historique', icon: <History className="h-4 w-4" /> },
-    { id: 'notes', label: 'Notes', icon: <MessageSquare className="h-4 w-4" /> },
-  ];
-
   return (
     <>
       {/* Overlay */}
       <div
-        className="fixed inset-0 bg-black/50 z-40"
+        className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-40"
         onClick={onClose}
       />
 
@@ -204,29 +175,9 @@ export function ApplicationDetailSheet({
           </span>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b px-6">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as typeof activeTab)}
-              className={`
-                flex items-center gap-2 px-4 py-3 border-b-2 transition
-                ${activeTab === tab.id
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-                }
-              `}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'details' && (
+          {
             <div className="space-y-6">
               {/* Candidat - Only show for company/admin views when candidate data exists */}
               {viewMode !== 'candidate' && candidate && (
@@ -457,124 +408,7 @@ export function ApplicationDetailSheet({
                 </section>
               )}
             </div>
-          )}
-
-          {activeTab === 'history' && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                Historique des changements
-              </h3>
-              
-              {application.statusHistory && application.statusHistory.length > 0 ? (
-                <div className="relative">
-                  <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
-                  
-                  {application.statusHistory.map((change, index) => {
-                    const toConfig = statusConfig[change.toStatus] || statusConfig.pending;
-                    const fromConfig = statusConfig[change.fromStatus] || statusConfig.pending;
-                    return (
-                      <div key={index} className="relative pl-10 pb-6">
-                        <div className={`
-                          absolute left-2 w-5 h-5 rounded-full border-2 border-white
-                          ${toConfig.bgColor}
-                        `} />
-                        
-                        <div className="bg-gray-50 rounded-lg p-4">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`font-medium ${toConfig.color}`}>
-                              {toConfig.label}
-                            </span>
-                            <ChevronRight className="h-4 w-4 text-gray-400" />
-                            <span className="text-sm text-gray-500">
-                              depuis {fromConfig.label}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-600">
-                            {change.changedBy ? `Par ${change.changedBy} • ` : ''}{format(new Date(change.changedAt), 'dd/MM/yyyy à HH:mm', { locale: fr })}
-                          </p>
-                          {change.reason && (
-                            <p className="text-sm text-gray-500 mt-2 italic">
-                              "{change.reason}"
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <History className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p>Aucun changement de statut enregistré</p>
-                </div>
-              )}
-
-              {/* Création initiale */}
-              <div className="relative pl-10">
-                <div className="absolute left-2 w-5 h-5 rounded-full bg-gray-200 border-2 border-white" />
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="font-medium text-gray-700">Candidature créée</p>
-                  <p className="text-sm text-gray-500">
-                    {format(new Date(application.applicationDate), 'dd/MM/yyyy à HH:mm', { locale: fr })}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'notes' && (
-            <div className="space-y-4">
-              {/* Ajouter une note */}
-              {viewMode !== 'candidate' && onAddNote && (
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <textarea
-                    value={newNote}
-                    onChange={e => setNewNote(e.target.value)}
-                    placeholder="Ajouter une note interne..."
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                    rows={3}
-                  />
-                  <div className="flex justify-end mt-3">
-                    <button
-                      onClick={handleAddNote}
-                      disabled={!newNote.trim() || isSubmittingNote}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center gap-2"
-                    >
-                      <Send className="h-4 w-4" />
-                      Ajouter
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Liste des notes */}
-              {application.notes && application.notes.length > 0 ? (
-                <div className="space-y-3">
-                  {application.notes.map(note => (
-                    <div key={note.id} className="bg-white border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium text-gray-900">{note.authorName}</span>
-                        <span className="text-sm text-gray-500">
-                          {format(new Date(note.createdAt), 'dd/MM/yyyy à HH:mm', { locale: fr })}
-                        </span>
-                      </div>
-                      <p className="text-gray-700">{note.content}</p>
-                      {note.isPrivate && (
-                        <span className="inline-block mt-2 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
-                          Note privée
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <MessageSquare className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p>Aucune note pour cette candidature</p>
-                </div>
-              )}
-            </div>
-          )}
+          }
         </div>
 
         {/* Footer */}

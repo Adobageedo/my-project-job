@@ -35,7 +35,7 @@ export default function Loading({ fullScreen = false, message, size = 'md' }: Lo
 
 export function LoadingOverlay({ message }: { message?: string }) {
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9998] flex items-center justify-center">
+    <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-[9998] flex items-center justify-center">
       <div className="bg-white rounded-xl p-8 shadow-2xl">
         <Loading message={message} size="lg" />
       </div>

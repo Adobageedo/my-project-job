@@ -2,11 +2,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import Modal from '@/components/shared/Modal';
-import { LocationFilter } from '@/components/shared/LocationSearch';
 import { useCandidate } from '@/contexts/AuthContext';
 import { 
   getSavedSearches, 
@@ -14,10 +12,10 @@ import {
   updateSavedSearch,
   deleteSavedSearch,
   SavedSearch,
-  SearchFilters,
   AlertFrequency,
+  DAYS_OF_WEEK,
 } from '@/services/candidateService';
-import { Location, FRENCH_REGIONS } from '@/types';
+import SavedSearchForm, { SavedSearchFormData, formDataToSearchFilters, formDataToNotificationOptions } from '@/components/candidate/SavedSearchForm';
 import { 
   Search, 
   Bell, 
@@ -31,34 +29,17 @@ import {
   Briefcase,
   GraduationCap,
   Calendar,
-  Filter,
-  X,
-  Check,
-  ChevronDown,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 const alertFrequencyLabels: Record<AlertFrequency, string> = {
-  instant: 'Instantané',
-  daily: 'Quotidien',
-  weekly: 'Hebdomadaire',
+  instant: 'À chaque nouvelle offre',
+  daily: 'Chaque jour',
+  weekly: 'Chaque semaine',
+  biweekly: 'Toutes les 2 semaines',
   never: 'Désactivé',
 };
-
-const contractTypeOptions = [
-  { value: 'stage', label: 'Stage' },
-  { value: 'alternance', label: 'Alternance' },
-  { value: 'cdi', label: 'CDI' },
-  { value: 'cdd', label: 'CDD' },
-];
-
-const studyLevelOptions = [
-  { value: 'L3', label: 'Licence 3' },
-  { value: 'M1', label: 'Master 1' },
-  { value: 'M2', label: 'Master 2' },
-  { value: 'Doctorat', label: 'Doctorat' },
-];
 
 export default function SavedSearchesPage() {
   const { candidate } = useCandidate();
@@ -70,16 +51,6 @@ export default function SavedSearchesPage() {
   // États pour le modal de création/édition
   const [showModal, setShowModal] = useState(false);
   const [editingSearch, setEditingSearch] = useState<SavedSearch | null>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    query: '',
-    regions: [] as string[],
-    countries: [] as string[],
-    contractTypes: [] as string[],
-    studyLevels: [] as string[],
-    alertEnabled: true,
-    alertFrequency: 'daily' as AlertFrequency,
-  });
   const [isSaving, setIsSaving] = useState(false);
   
   // États pour la suppression
@@ -106,52 +77,23 @@ export default function SavedSearchesPage() {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      query: '',
-      regions: [],
-      countries: [],
-      contractTypes: [],
-      studyLevels: [],
-      alertEnabled: true,
-      alertFrequency: 'daily',
-    });
-    setEditingSearch(null);
-  };
-
   const openCreateModal = () => {
-    resetForm();
+    setEditingSearch(null);
     setShowModal(true);
   };
 
   const openEditModal = (search: SavedSearch) => {
     setEditingSearch(search);
-    setFormData({
-      name: search.name,
-      query: search.filters.query || '',
-      regions: search.filters.regions || [],
-      countries: search.filters.countries || [],
-      contractTypes: search.filters.contractTypes || [],
-      studyLevels: search.filters.studyLevels || [],
-      alertEnabled: search.alertEnabled,
-      alertFrequency: search.alertFrequency,
-    });
     setShowModal(true);
   };
 
-  const handleSaveSearch = async () => {
-    if (!formData.name.trim()) return;
+  const handleSaveSearch = async (formData: SavedSearchFormData) => {
+    if (!candidateId) return;
     
     setIsSaving(true);
     try {
-      const filters: SearchFilters = {
-        query: formData.query || undefined,
-        regions: formData.regions.length > 0 ? formData.regions : undefined,
-        countries: formData.countries.length > 0 ? formData.countries : undefined,
-        contractTypes: formData.contractTypes.length > 0 ? formData.contractTypes : undefined,
-        studyLevels: formData.studyLevels.length > 0 ? formData.studyLevels : undefined,
-      };
+      const filters = formDataToSearchFilters(formData);
+      const notificationOptions = formDataToNotificationOptions(formData);
 
       if (editingSearch) {
         const updated = await updateSavedSearch(editingSearch.id, {
@@ -159,6 +101,9 @@ export default function SavedSearchesPage() {
           filters,
           alertEnabled: formData.alertEnabled,
           alertFrequency: formData.alertFrequency,
+          preferredDay: notificationOptions.preferred_day,
+          preferredHour: notificationOptions.preferred_hour,
+          biweeklyWeek: notificationOptions.biweekly_week,
         });
         setSavedSearches(prev => prev.map(s => s.id === updated.id ? updated : s));
       } else {
@@ -167,13 +112,18 @@ export default function SavedSearchesPage() {
           formData.name,
           filters,
           formData.alertEnabled,
-          formData.alertFrequency
+          formData.alertFrequency,
+          {
+            preferredDay: notificationOptions.preferred_day,
+            preferredHour: notificationOptions.preferred_hour,
+            biweeklyWeek: notificationOptions.biweekly_week,
+          }
         );
         setSavedSearches(prev => [newSearch, ...prev]);
       }
       
       setShowModal(false);
-      resetForm();
+      setEditingSearch(null);
     } catch (error) {
       console.error('Erreur lors de la sauvegarde:', error);
     } finally {
@@ -199,8 +149,23 @@ export default function SavedSearchesPage() {
 
   const toggleAlert = async (search: SavedSearch) => {
     try {
+      const isCurrentlyEnabled = search.alertEnabled || search.notify_new_matches;
+      const newEnabled = !isCurrentlyEnabled;
+      
+      // Déterminer la fréquence à utiliser
+      let newFrequency: AlertFrequency;
+      if (newEnabled) {
+        // Réactivation: utiliser la fréquence existante (si pas 'never') ou 'daily' par défaut
+        const existingFreq = search.alertFrequency || search.notification_frequency;
+        newFrequency = (existingFreq && existingFreq !== 'never') ? existingFreq : 'daily';
+      } else {
+        // Désactivation: mettre à 'never'
+        newFrequency = 'never';
+      }
+      
       const updated = await updateSavedSearch(search.id, {
-        alertEnabled: !search.alertEnabled,
+        alertEnabled: newEnabled,
+        alertFrequency: newFrequency,
       });
       setSavedSearches(prev => prev.map(s => s.id === updated.id ? updated : s));
     } catch (error) {
@@ -211,20 +176,12 @@ export default function SavedSearchesPage() {
   const executeSearch = (search: SavedSearch) => {
     // Construire l'URL avec les filtres
     const params = new URLSearchParams();
-    if (search.filters.query) params.set('q', search.filters.query);
-    if (search.filters.regions?.length) params.set('regions', search.filters.regions.join(','));
-    if (search.filters.contractTypes?.length) params.set('types', search.filters.contractTypes.join(','));
-    if (search.filters.studyLevels?.length) params.set('levels', search.filters.studyLevels.join(','));
+    if (search.filters.search) params.set('q', search.filters.search);
+    if (search.filters.locations?.length) params.set('locations', search.filters.locations.join(','));
+    if (search.filters.contract_types?.length) params.set('types', search.filters.contract_types.join(','));
+    if (search.filters.education_levels?.length) params.set('levels', search.filters.education_levels.join(','));
     
     window.location.href = `/candidate/offers?${params.toString()}`;
-  };
-
-  const toggleArrayItem = (array: string[], item: string, setter: (arr: string[]) => void) => {
-    if (array.includes(item)) {
-      setter(array.filter(i => i !== item));
-    } else {
-      setter([...array, item]);
-    }
   };
 
   return (
@@ -263,7 +220,7 @@ export default function SavedSearchesPage() {
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
               <div className="text-3xl font-bold text-green-600">
-                {savedSearches.filter(s => s.alertEnabled).length}
+                {savedSearches.filter(s => s.alertEnabled || s.notify_new_matches).length}
               </div>
               <div className="text-gray-600">Alertes actives</div>
             </div>
@@ -289,12 +246,21 @@ export default function SavedSearchesPage() {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-3">
+                      <div className="flex items-center gap-3 mb-3 flex-wrap">
                         <h3 className="text-lg font-semibold text-gray-900">{search.name}</h3>
-                        {search.alertEnabled ? (
+                        {(search.alertEnabled || search.notify_new_matches) ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
                             <Bell className="h-3 w-3" />
-                            {alertFrequencyLabels[search.alertFrequency]}
+                            {alertFrequencyLabels[search.alertFrequency || search.notification_frequency]}
+                            {(search.alertFrequency === 'daily' || search.notification_frequency === 'daily') && (
+                              <span className="text-green-600">• {(search.preferred_hour ?? 9).toString().padStart(2, '0')}:00</span>
+                            )}
+                            {(search.alertFrequency === 'weekly' || search.notification_frequency === 'weekly') && (
+                              <span className="text-green-600">• {DAYS_OF_WEEK.find(d => d.value === search.preferred_day)?.label || 'Lundi'} {(search.preferred_hour ?? 9).toString().padStart(2, '0')}:00</span>
+                            )}
+                            {(search.alertFrequency === 'biweekly' || search.notification_frequency === 'biweekly') && (
+                              <span className="text-green-600">• {DAYS_OF_WEEK.find(d => d.value === search.preferred_day)?.label || 'Lundi'} {(search.preferred_hour ?? 9).toString().padStart(2, '0')}:00</span>
+                            )}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
@@ -311,31 +277,25 @@ export default function SavedSearchesPage() {
 
                       {/* Filtres */}
                       <div className="flex flex-wrap gap-2 mb-3">
-                        {search.filters.query && (
+                        {search.filters.search && (
                           <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg text-sm text-gray-700">
                             <Search className="h-3 w-3" />
-                            "{search.filters.query}"
+                            "{search.filters.search}"
                           </span>
                         )}
-                        {search.filters.cities?.map(city => (
-                          <span key={city} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-sm">
+                        {search.filters.locations?.map(loc => (
+                          <span key={loc} className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 rounded-lg text-sm">
                             <MapPin className="h-3 w-3" />
-                            {city}
+                            {loc}
                           </span>
                         ))}
-                        {search.filters.regions?.map(region => (
-                          <span key={region} className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 rounded-lg text-sm">
-                            <MapPin className="h-3 w-3" />
-                            {region}
-                          </span>
-                        ))}
-                        {search.filters.contractTypes?.map(type => (
+                        {search.filters.contract_types?.map(type => (
                           <span key={type} className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 rounded-lg text-sm capitalize">
                             <Briefcase className="h-3 w-3" />
                             {type}
                           </span>
                         ))}
-                        {search.filters.studyLevels?.map(level => (
+                        {search.filters.education_levels?.map(level => (
                           <span key={level} className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 rounded-lg text-sm">
                             <GraduationCap className="h-3 w-3" />
                             {level}
@@ -368,13 +328,13 @@ export default function SavedSearchesPage() {
                       <button
                         onClick={() => toggleAlert(search)}
                         className={`p-2 rounded-lg transition ${
-                          search.alertEnabled 
+                          (search.alertEnabled || search.notify_new_matches)
                             ? 'bg-green-50 hover:bg-green-100 text-green-600' 
                             : 'bg-gray-50 hover:bg-gray-100 text-gray-500'
                         }`}
-                        title={search.alertEnabled ? 'Désactiver les alertes' : 'Activer les alertes'}
+                        title={(search.alertEnabled || search.notify_new_matches) ? 'Désactiver les alertes' : 'Activer les alertes'}
                       >
-                        {search.alertEnabled ? <Bell className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
+                        {(search.alertEnabled || search.notify_new_matches) ? <Bell className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
                       </button>
                       <button
                         onClick={() => openEditModal(search)}
@@ -424,193 +384,20 @@ export default function SavedSearchesPage() {
         isOpen={showModal}
         onClose={() => {
           setShowModal(false);
-          resetForm();
+          setEditingSearch(null);
         }}
-        title={editingSearch ? 'Modifier la recherche' : 'Nouvelle recherche'}
+        title={editingSearch ? 'Modifier la recherche' : 'Nouvelle recherche sauvegardée'}
         size="lg"
       >
-        <div className="space-y-6">
-          {/* Nom de la recherche */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Nom de la recherche *
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              placeholder="Ex: Stages Finance Paris"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* Mots-clés */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Mots-clés
-            </label>
-            <input
-              type="text"
-              value={formData.query}
-              onChange={(e) => setFormData(prev => ({ ...prev, query: e.target.value }))}
-              placeholder="Ex: finance, M&A, audit..."
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* Régions */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <MapPin className="inline h-4 w-4 mr-1" />
-              Régions
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {Object.keys(FRENCH_REGIONS).slice(0, 8).map(region => (
-                <button
-                  key={region}
-                  type="button"
-                  onClick={() => toggleArrayItem(
-                    formData.regions, 
-                    region, 
-                    (arr) => setFormData(prev => ({ ...prev, regions: arr }))
-                  )}
-                  className={`px-3 py-1.5 rounded-lg text-sm transition ${
-                    formData.regions.includes(region)
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {region}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Type de contrat */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Briefcase className="inline h-4 w-4 mr-1" />
-              Type de contrat
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {contractTypeOptions.map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => toggleArrayItem(
-                    formData.contractTypes, 
-                    option.value, 
-                    (arr) => setFormData(prev => ({ ...prev, contractTypes: arr }))
-                  )}
-                  className={`px-3 py-1.5 rounded-lg text-sm transition ${
-                    formData.contractTypes.includes(option.value)
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Niveau d'études */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <GraduationCap className="inline h-4 w-4 mr-1" />
-              Niveau d'études
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {studyLevelOptions.map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => toggleArrayItem(
-                    formData.studyLevels, 
-                    option.value, 
-                    (arr) => setFormData(prev => ({ ...prev, studyLevels: arr }))
-                  )}
-                  className={`px-3 py-1.5 rounded-lg text-sm transition ${
-                    formData.studyLevels.includes(option.value)
-                      ? 'bg-amber-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Alertes */}
-          <div className="p-4 bg-gray-50 rounded-lg space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bell className="h-5 w-5 text-gray-600" />
-                <span className="font-medium text-gray-900">Alertes email</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setFormData(prev => ({ ...prev, alertEnabled: !prev.alertEnabled }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-                  formData.alertEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                    formData.alertEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {formData.alertEnabled && (
-              <div>
-                <label className="block text-sm text-gray-600 mb-2">Fréquence des alertes</label>
-                <select
-                  value={formData.alertFrequency}
-                  onChange={(e) => setFormData(prev => ({ ...prev, alertFrequency: e.target.value as AlertFrequency }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="instant">Instantané (dès qu'une offre correspond)</option>
-                  <option value="daily">Quotidien (résumé chaque jour)</option>
-                  <option value="weekly">Hebdomadaire (résumé chaque semaine)</option>
-                </select>
-              </div>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={() => {
-                setShowModal(false);
-                resetForm();
-              }}
-              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium"
-              disabled={isSaving}
-            >
-              Annuler
-            </button>
-            <button
-              onClick={handleSaveSearch}
-              disabled={isSaving || !formData.name.trim()}
-              className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {isSaving ? (
-                <>
-                  <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-                  Enregistrement...
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4" />
-                  {editingSearch ? 'Mettre à jour' : 'Créer la recherche'}
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+        <SavedSearchForm
+          editingSearch={editingSearch}
+          onSubmit={handleSaveSearch}
+          onCancel={() => {
+            setShowModal(false);
+            setEditingSearch(null);
+          }}
+          isSubmitting={isSaving}
+        />
       </Modal>
 
       {/* Modal de confirmation de suppression */}
