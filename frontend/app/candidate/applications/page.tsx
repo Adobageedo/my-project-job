@@ -63,7 +63,7 @@ export default function CandidateApplicationsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   
   // État pour le filtre de période (par défaut : 7 derniers jours)
-  const [timeRange, setTimeRange] = useState<TimeRangeFilter>('custom');
+  const [timeRange, setTimeRange] = useState<TimeRangeFilter>('6m');
   const [customDateRange, setCustomDateRange] = useState<CustomDateRange>(() => {
     const end = new Date();
     const start = subDays(end, 7);

@@ -23,7 +23,7 @@ import { validateEnv } from './config/env.validation';
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: '.env.prod',
       validate: validateEnv,
     }),
 
