@@ -106,6 +106,7 @@ export interface CompanyUpdateData {
   size?: string;
   description?: string;
   website?: string;
+  linkedin_url?: string;
   logo_url?: string;
   contact_name?: string;
   contact_email?: string;

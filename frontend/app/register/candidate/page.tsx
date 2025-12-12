@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
-import { Mail, Lock, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, Loader2, Shield } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, Loader2, Shield, ChevronDown, HelpCircle } from 'lucide-react';
 import { registerCandidate } from '@/services/authService';
 import Captcha, { CAPTCHA_SITE_KEYS, CAPTCHA_CONFIG } from '@/components/security/Captcha';
 import { checkPersistentRateLimit, formatWaitTime, clearPersistentRateLimit } from '@/lib/rateLimit';
@@ -354,6 +354,52 @@ export default function RegisterCandidatePage() {
               <Link href="/login-candidate" className="text-blue-600 hover:text-blue-700 font-medium">
                 Se connecter
               </Link>
+            </div>
+          </div>
+
+          {/* FAQ Section */}
+          <div className="mt-12 bg-white rounded-lg shadow-lg p-8">
+            <div className="flex items-center gap-3 mb-6">
+              <HelpCircle className="h-6 w-6 text-sky-600" />
+              <h2 className="text-2xl font-bold text-slate-900">Questions fréquentes</h2>
+            </div>
+            
+            <div className="space-y-4">
+              {[
+                {
+                  question: "Comment postuler à une offre ?",
+                  answer: "Créez votre compte, complétez votre profil et téléchargez votre CV. Vous pourrez ensuite postuler en un clic à toutes les offres qui vous intéressent."
+                },
+                {
+                  question: "L'inscription est-elle gratuite ?",
+                  answer: "Oui, l'inscription et l'accès aux offres sont entièrement gratuits pour les candidats. Vous pouvez postuler à autant d'offres que vous le souhaitez."
+                },
+                {
+                  question: "Quels types de postes sont disponibles ?",
+                  answer: "Nous sommes spécialisés dans les profils finance : stages, alternances et premiers emplois en finance d'entreprise et de marché (contrôle de gestion, audit, M&A, trading...)."
+                },
+                {
+                  question: "Comment améliorer ma candidature ?",
+                  answer: "Nous proposons des formations et du coaching : préparation aux entretiens, optimisation de CV et LinkedIn, et accompagnement carrière personnalisé."
+                },
+                {
+                  question: "Puis-je recevoir des alertes pour les nouvelles offres ?",
+                  answer: "Oui, vous pouvez créer des alertes personnalisées en définissant vos critères de recherche. Vous serez notifié dès qu'une offre correspondante est publiée."
+                },
+              ].map((faq, index) => (
+                <details 
+                  key={index}
+                  className="group border border-gray-200 rounded-lg overflow-hidden"
+                >
+                  <summary className="flex items-center justify-between p-4 cursor-pointer list-none hover:bg-gray-50 transition">
+                    <span className="font-medium text-slate-900 pr-4 text-sm">{faq.question}</span>
+                    <ChevronDown className="h-5 w-5 text-gray-500 group-open:rotate-180 transition-transform flex-shrink-0" />
+                  </summary>
+                  <div className="px-4 pb-4 text-slate-600 font-light text-sm leading-relaxed border-t border-gray-100 pt-3">
+                    {faq.answer}
+                  </div>
+                </details>
+              ))}
             </div>
           </div>
         </div>

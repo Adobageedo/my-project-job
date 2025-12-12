@@ -84,6 +84,17 @@ export default function Footer({ role: propRole }: FooterProps) {
                       <ExternalLink className="h-3 w-3" />
                     </a>
                   </li>
+                  <li>
+                    <a 
+                      href="https://berthoisconseils.fr/faq-recrutement" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-slate-600 hover:text-slate-900 transition font-light inline-flex items-center gap-1"
+                    >
+                      Blog
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </li>
                 </ul>
               </div>
             </>
@@ -181,6 +192,17 @@ export default function Footer({ role: propRole }: FooterProps) {
                       className="text-slate-600 hover:text-slate-900 transition font-light inline-flex items-center gap-1"
                     >
                       Services RH
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </li>
+                  <li>
+                    <a 
+                      href="https://berthoisconseils.fr/blog" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-slate-600 hover:text-slate-900 transition font-light inline-flex items-center gap-1"
+                    >
+                      Blog
                       <ExternalLink className="h-3 w-3" />
                     </a>
                   </li>

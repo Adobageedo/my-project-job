@@ -7,6 +7,7 @@ import Footer from '@/components/layout/Footer';
 import JobCard from '@/components/job/JobCard';
 import { jobOffers } from '@/data';
 import { getRecentOffersForHomepage } from '@/services/offerService';
+import { getFormattedPlatformStats, FormattedStat } from '@/services/statsService';
 import { 
   ArrowRight, 
   Building2, 
@@ -39,13 +40,22 @@ interface RecentOffer {
   startDate: string | null;
 }
 
+// Default stats for initial render and fallback
+const DEFAULT_STATS: FormattedStat[] = [
+  { key: 'partner_companies', displayValue: '500+', label: 'Entreprises partenaires' },
+  { key: 'qualified_candidates', displayValue: '5000+', label: 'Candidats qualifiés' },
+  { key: 'active_opportunities', displayValue: '2000+', label: 'Opportunités actives' },
+];
+
 export default function Home() {
   const recentOffers = jobOffers.slice(0, 6);
   const [recentOffersTable, setRecentOffersTable] = useState<RecentOffer[]>([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(true);
+  const [platformStats, setPlatformStats] = useState<FormattedStat[]>(DEFAULT_STATS);
 
   useEffect(() => {
-    const loadRecentOffers = async () => {
+    const loadData = async () => {
+      // Load recent offers
       try {
         const offers = await getRecentOffersForHomepage(5);
         setRecentOffersTable(offers);
@@ -54,8 +64,19 @@ export default function Home() {
       } finally {
         setIsLoadingOffers(false);
       }
+
+      // Load platform stats
+      try {
+        const stats = await getFormattedPlatformStats();
+        if (stats.length > 0) {
+          setPlatformStats(stats);
+        }
+      } catch (error) {
+        console.error('Error loading platform stats:', error);
+        // Keep default stats on error
+      }
     };
-    loadRecentOffers();
+    loadData();
   }, []);
 
   return (
@@ -95,69 +116,16 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Alternance & Stage Banner */}
+      {/* Stats Section */}
       <section className="py-24 bg-[#f5f3ef]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-            <div className="flex items-center gap-6">
-              <div className="p-4 bg-white/50 rounded-2xl">
-                <GraduationCap className="h-12 w-12 text-gray-900" strokeWidth={1.5} />
-              </div>
-              <div>
-                <h2 className="text-2xl md:text-3xl font-light text-gray-900 mb-2">
-                  Recrutez vos alternants et stagiaires en 3 clics
-                </h2>
-                <p className="text-gray-700 font-light">
-                  Spécialistes du recrutement de profils juniors en finance d'entreprise et de marché
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-4">
-              <Link
-                href="/register/company"
-                className="px-8 py-4 bg-white text-gray-900 hover:bg-gray-100 font-medium transition inline-flex items-center gap-2 rounded-lg"
-              >
-                <Zap className="h-5 w-5" />
-                Publier une offre
-              </Link>
-            </div>
-          </div>
-
-          {/* Quick benefits */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10 pt-10 border-t border-gray-300/50">
-            <div className="flex items-center gap-3 text-gray-900">
-              <CheckCircle className="h-6 w-6 text-gray-700" />
-              <span className="font-light">Profils pré-qualifiés des meilleures écoles</span>
-            </div>
-            <div className="flex items-center gap-3 text-gray-900">
-              <Clock className="h-6 w-6 text-gray-700" />
-              <span className="font-light">Recrutement en moins de 2 semaines</span>
-            </div>
-            <div className="flex items-center gap-3 text-gray-900">
-              <Award className="h-6 w-6 text-gray-700" />
-              <span className="font-light">Accompagnement personnalisé</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="py-20 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-16 text-center">
-            <div className="flex flex-col items-center">
-              <div className="text-5xl font-light text-slate-900 mb-3">50+</div>
-              <div className="text-slate-600 font-light text-lg">Entreprises partenaires</div>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="text-5xl font-light text-slate-900 mb-3">500+</div>
-              <div className="text-slate-600 font-light text-lg">Candidats qualifiés</div>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="text-5xl font-light text-slate-900 mb-3">200+</div>
-              <div className="text-slate-600 font-light text-lg">Opportunités actives</div>
-            </div>
+            {platformStats.map((stat) => (
+              <div key={stat.key} className="flex flex-col items-center">
+                <div className="text-5xl font-light text-slate-900 mb-3">{stat.displayValue}</div>
+                <div className="text-slate-600 font-light text-lg">{stat.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -268,56 +236,48 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Features Section */}
+      {/* Alternance & Stage Banner */}
       <section className="py-24 bg-[#f5f3ef]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-20">
-            <h2 className="text-5xl font-light text-slate-900 mb-6">
-              Notre vision
-            </h2>
-            <p className="text-xl text-slate-600 font-light max-w-3xl mx-auto leading-relaxed">
-              Le capital humain est la pierre angulaire d'une entreprise. Nous nous engageons à lui accorder toute la place qu'il mérite en mobilisant notre expertise au service de votre projet.
-            </p>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+            <div className="flex items-center gap-6">
+              <div className="p-4 bg-white/50 rounded-2xl">
+                <GraduationCap className="h-12 w-12 text-gray-900" strokeWidth={1.5} />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-light text-gray-900 mb-2">
+                  Recrutez vos alternants et stagiaires en 3 clics
+                </h2>
+                <p className="text-gray-700 font-light">
+                  Spécialistes du recrutement de profils juniors en finance d'entreprise et de marché
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <Link
+                href="/register/company"
+                className="px-8 py-4 bg-white text-gray-900 hover:bg-gray-100 font-medium transition inline-flex items-center gap-2 rounded-lg"
+              >
+                <Zap className="h-5 w-5" />
+                Publier une offre
+              </Link>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-            <div className="text-center">
-              <div className="mb-6">
-                <Building2 className="h-12 w-12 text-slate-900 mx-auto" strokeWidth={1} />
-              </div>
-              <h3 className="text-2xl font-light text-slate-900 mb-4">
-                Entreprises de renom
-              </h3>
-              <p className="text-slate-600 font-light leading-relaxed">
-                Accédez aux offres des leaders de la finance : banques d'investissement,
-                Private Equity, Asset Management
-              </p>
+          {/* Quick benefits */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10 pt-10 border-t border-gray-300/50">
+            <div className="flex items-center gap-3 text-gray-900">
+              <CheckCircle className="h-6 w-6 text-gray-700" />
+              <span className="font-light">Profils pré-qualifiés des meilleures écoles</span>
             </div>
-
-            <div className="text-center">
-              <div className="mb-6">
-                <Users className="h-12 w-12 text-slate-900 mx-auto" strokeWidth={1} />
-              </div>
-              <h3 className="text-2xl font-light text-slate-900 mb-4">
-                Profils qualifiés
-              </h3>
-              <p className="text-slate-600 font-light leading-relaxed">
-                Candidats issus des meilleures écoles de commerce et d'ingénieur,
-                spécialisés en finance
-              </p>
+            <div className="flex items-center gap-3 text-gray-900">
+              <Clock className="h-6 w-6 text-gray-700" />
+              <span className="font-light">Recrutement en moins de 2 semaines</span>
             </div>
-
-            <div className="text-center">
-              <div className="mb-6">
-                <TrendingUp className="h-12 w-12 text-slate-900 mx-auto" strokeWidth={1} />
-              </div>
-              <h3 className="text-2xl font-light text-slate-900 mb-4">
-                Processus simplifié
-              </h3>
-              <p className="text-slate-600 font-light leading-relaxed">
-                Candidature en quelques clics, suivi en temps réel et gestion facilitée
-                des recrutements
-              </p>
+            <div className="flex items-center gap-3 text-gray-900">
+              <Award className="h-6 w-6 text-gray-700" />
+              <span className="font-light">Accompagnement personnalisé</span>
             </div>
           </div>
         </div>
@@ -328,7 +288,7 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
             <div>
-              <span className="text-blue-600 font-medium text-sm uppercase tracking-wider mb-4 block">
+              <span className="text-indigo-700 font-medium text-sm uppercase tracking-wider mb-4 block">
                 Pour les entreprises
               </span>
               <h2 className="text-4xl md:text-5xl font-light text-slate-900 mb-6">
@@ -340,8 +300,8 @@ export default function Home() {
               
               <div className="space-y-6">
                 <div className="flex items-start gap-4">
-                  <div className="p-3 bg-blue-50 rounded-xl">
-                    <Target className="h-6 w-6 text-blue-600" />
+                  <div className="p-3 bg-indigo-50 rounded-xl">
+                    <Target className="h-6 w-6 text-indigo-700" />
                   </div>
                   <div>
                     <h3 className="text-lg font-medium text-slate-900 mb-1">Chasse & recrutement</h3>
@@ -350,8 +310,8 @@ export default function Home() {
                 </div>
                 
                 <div className="flex items-start gap-4">
-                  <div className="p-3 bg-blue-50 rounded-xl">
-                    <Users className="h-6 w-6 text-blue-600" />
+                  <div className="p-3 bg-indigo-50 rounded-xl">
+                    <Users className="h-6 w-6 text-indigo-700" />
                   </div>
                   <div>
                     <h3 className="text-lg font-medium text-slate-900 mb-1">Recrutement externalisé (RPO)</h3>
@@ -360,8 +320,8 @@ export default function Home() {
                 </div>
                 
                 <div className="flex items-start gap-4">
-                  <div className="p-3 bg-blue-50 rounded-xl">
-                    <Briefcase className="h-6 w-6 text-blue-600" />
+                  <div className="p-3 bg-indigo-50 rounded-xl">
+                    <Briefcase className="h-6 w-6 text-indigo-700" />
                   </div>
                   <div>
                     <h3 className="text-lg font-medium text-slate-900 mb-1">Évaluation de profils</h3>
@@ -370,8 +330,8 @@ export default function Home() {
                 </div>
                 
                 <div className="flex items-start gap-4">
-                  <div className="p-3 bg-blue-50 rounded-xl">
-                    <Handshake className="h-6 w-6 text-blue-600" />
+                  <div className="p-3 bg-indigo-50 rounded-xl">
+                    <Handshake className="h-6 w-6 text-indigo-700" />
                   </div>
                   <div>
                     <h3 className="text-lg font-medium text-slate-900 mb-1">Direction financière à temps partagé</h3>
@@ -382,21 +342,12 @@ export default function Home() {
               
               <div className="mt-10 flex flex-wrap gap-4">
                 <Link
-                  href="/register/company"
+                  href="https://berthoisconseils.fr/solutions-entreprises-recrutement"
                   className="px-8 py-4 bg-slate-900 text-white hover:bg-slate-800 transition font-light inline-flex items-center gap-2"
                 >
                   Découvrir nos solutions
                   <ArrowRight className="h-5 w-5" />
                 </Link>
-                <a
-                  href="https://berthoisconseils.fr/solutions-entreprises-recrutement"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-8 py-4 border border-slate-300 text-slate-700 hover:bg-slate-50 transition font-light inline-flex items-center gap-2"
-                >
-                  En savoir plus
-                  <ExternalLink className="h-4 w-4" />
-                </a>
               </div>
             </div>
             
@@ -419,7 +370,7 @@ export default function Home() {
                   'Biomédical',
                 ].map((sector) => (
                   <div key={sector} className="flex items-center gap-2 text-slate-700">
-                    <CheckCircle className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                    <CheckCircle className="h-4 w-4 text-indigo-700 flex-shrink-0" />
                     <span className="font-light">{sector}</span>
                   </div>
                 ))}
@@ -434,27 +385,27 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
             {/* Image/Visual side */}
-            <div className="order-2 lg:order-1 bg-gradient-to-br from-emerald-500 to-emerald-600 p-10 rounded-2xl text-white">
+            <div className="order-2 lg:order-1 bg-gradient-to-br from-sky-500 to-sky-600 p-10 rounded-2xl text-white">
               <h3 className="text-2xl font-light mb-8">Nos formations & coaching</h3>
               
               <div className="space-y-6">
                 <div className="bg-white/10 p-6 rounded-xl">
                   <h4 className="font-medium mb-2">Préparation aux entretiens</h4>
-                  <p className="text-emerald-100 font-light text-sm">
+                  <p className="text-sky-100 font-light text-sm">
                     Simulation d'entretiens, techniques de présentation et négociation salariale
                   </p>
                 </div>
                 
                 <div className="bg-white/10 p-6 rounded-xl">
                   <h4 className="font-medium mb-2">Optimisation CV & LinkedIn</h4>
-                  <p className="text-emerald-100 font-light text-sm">
+                  <p className="text-sky-100 font-light text-sm">
                     Création de CV impactants et profils LinkedIn optimisés pour la finance
                   </p>
                 </div>
                 
                 <div className="bg-white/10 p-6 rounded-xl">
                   <h4 className="font-medium mb-2">Coaching carrière personnalisé</h4>
-                  <p className="text-emerald-100 font-light text-sm">
+                  <p className="text-sky-100 font-light text-sm">
                     Accompagnement sur-mesure pour définir et atteindre vos objectifs professionnels
                   </p>
                 </div>
@@ -463,7 +414,7 @@ export default function Home() {
             
             {/* Content side */}
             <div className="order-1 lg:order-2">
-              <span className="text-emerald-600 font-medium text-sm uppercase tracking-wider mb-4 block">
+              <span className="text-sky-600 font-medium text-sm uppercase tracking-wider mb-4 block">
                 Pour les candidats
               </span>
               <h2 className="text-4xl md:text-5xl font-light text-slate-900 mb-6">
@@ -475,15 +426,15 @@ export default function Home() {
               
               <div className="space-y-4 mb-10">
                 <div className="flex items-center gap-3">
-                  <BookOpen className="h-5 w-5 text-emerald-600" />
+                  <BookOpen className="h-5 w-5 text-sky-600" />
                   <span className="text-slate-700 font-light">Formations adaptées à votre niveau d'expérience</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Target className="h-5 w-5 text-emerald-600" />
+                  <Target className="h-5 w-5 text-sky-600" />
                   <span className="text-slate-700 font-light">Coaching individuel avec des experts du secteur</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <TrendingUp className="h-5 w-5 text-emerald-600" />
+                  <TrendingUp className="h-5 w-5 text-sky-600" />
                   <span className="text-slate-700 font-light">Accès privilégié aux opportunités de carrière</span>
                 </div>
               </div>
@@ -491,7 +442,7 @@ export default function Home() {
               <div className="flex flex-wrap gap-4">
                 <Link
                   href="/register/candidate"
-                  className="px-8 py-4 bg-emerald-600 text-white hover:bg-emerald-700 transition font-light inline-flex items-center gap-2"
+                  className="px-8 py-4 bg-sky-600 text-white hover:bg-sky-700 transition font-light inline-flex items-center gap-2"
                 >
                   Créer mon profil
                   <ArrowRight className="h-5 w-5" />
@@ -525,7 +476,58 @@ export default function Home() {
               Berthois Conseils propose des solutions de conseil en ressources humaines pour les profils en finance d'entreprise et de marché. Nous avons à cœur de mettre l'expérience candidat au centre de notre démarche tout en nous engageant dans la création de valeur pour nos clients.
             </p>
           </div>
-          
+
+          {/* Notre vision - sous-section */}
+          <div className="mb-20">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+              <div className="text-center">
+                <div className="mb-6">
+                  <Building2 className="h-12 w-12 text-slate-900 mx-auto" strokeWidth={1} />
+                </div>
+                <h4 className="text-xl font-light text-slate-900 mb-4">
+                  Entreprises de renom
+                </h4>
+                <p className="text-slate-600 font-light leading-relaxed">
+                  Accédez aux offres des leaders de la finance : banques d'investissement,
+                  Private Equity, Asset Management
+                </p>
+              </div>
+
+              <div className="text-center">
+                <div className="mb-6">
+                  <Users className="h-12 w-12 text-slate-900 mx-auto" strokeWidth={1} />
+                </div>
+                <h4 className="text-xl font-light text-slate-900 mb-4">
+                  Profils qualifiés
+                </h4>
+                <p className="text-slate-600 font-light leading-relaxed">
+                  Candidats issus des meilleures écoles de commerce et d'ingénieur,
+                  spécialisés en finance
+                </p>
+              </div>
+
+              <div className="text-center">
+                <div className="mb-6">
+                  <TrendingUp className="h-12 w-12 text-slate-900 mx-auto" strokeWidth={1} />
+                </div>
+                <h4 className="text-xl font-light text-slate-900 mb-4">
+                  Processus simplifié
+                </h4>
+                <p className="text-slate-600 font-light leading-relaxed">
+                  Candidature en quelques clics, suivi en temps réel et gestion facilitée
+                  des recrutements
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="text-center mb-12">
+            <h3 className="text-3xl font-light text-slate-900 mb-4">
+              Notre vision
+            </h3>
+            <p className="text-lg text-slate-600 font-light max-w-3xl mx-auto leading-relaxed">
+              Le capital humain est la pierre angulaire d'une entreprise. Nous nous engageons à lui accorder toute la place qu'il mérite en mobilisant notre expertise au service de votre projet.
+              </p>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
             <div className="text-center p-8 bg-slate-50 rounded-2xl">
               <div className="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -571,149 +573,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      {/* FAQ Section */}
-      <section className="py-24 bg-[#f5f3ef]">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <span className="text-blue-600 font-medium text-sm uppercase tracking-wider mb-4 block">
-              FAQ
-            </span>
-            <h2 className="text-4xl md:text-5xl font-light text-slate-900 mb-6">
-              Questions fréquentes
-            </h2>
-            <p className="text-xl text-slate-600 font-light">
-              Tout ce que vous devez savoir sur notre plateforme
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            {[
-              {
-                question: "Comment fonctionne le recrutement de stagiaires et alternants ?",
-                answer: "Notre plateforme vous permet de publier vos offres en quelques clics. Les candidats postulent directement, vous recevez leurs candidatures dans votre espace, et vous pouvez gérer le processus de A à Z avec notre système de suivi intégré."
-              },
-              {
-                question: "Quels sont les profils disponibles sur la plateforme ?",
-                answer: "Nous sommes spécialisés dans les profils finance : analystes, contrôleurs de gestion, auditeurs, traders juniors... Les candidats sont issus des meilleures écoles de commerce et d'ingénieur françaises."
-              },
-              {
-                question: "Combien coûte la publication d'une offre ?",
-                answer: "La publication d'offres de stage et d'alternance est gratuite. Pour les CDI et les services premium (chasse, RPO, évaluation), contactez-nous pour un devis personnalisé."
-              },
-              {
-                question: "Comment accompagnez-vous les candidats ?",
-                answer: "Nous proposons des formations et du coaching : préparation aux entretiens, optimisation CV et LinkedIn, et accompagnement carrière personnalisé pour maximiser vos chances de réussite."
-              },
-              {
-                question: "Quel est le délai moyen de recrutement ?",
-                answer: "Grâce à notre vivier de candidats pré-qualifiés, le délai moyen est de 2 semaines entre la publication de l'offre et la proposition d'embauche."
-              },
-            ].map((faq, index) => (
-              <details 
-                key={index}
-                className="group bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-              >
-                <summary className="flex items-center justify-between p-6 cursor-pointer list-none">
-                  <span className="font-medium text-slate-900 pr-4">{faq.question}</span>
-                  <ChevronDown className="h-5 w-5 text-gray-500 group-open:rotate-180 transition-transform flex-shrink-0" />
-                </summary>
-                <div className="px-6 pb-6 text-slate-600 font-light leading-relaxed">
-                  {faq.answer}
-                </div>
-              </details>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Blog Section */}
-      <section className="py-24 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <span className="text-emerald-600 font-medium text-sm uppercase tracking-wider mb-4 block">
-              Blog
-            </span>
-            <h2 className="text-4xl md:text-5xl font-light text-slate-900 mb-6">
-              Actualités & Conseils
-            </h2>
-            <p className="text-xl text-slate-600 font-light">
-              Restez informé des tendances du recrutement en finance
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              {
-                title: "Comment réussir son entretien en finance de marché",
-                excerpt: "Les clés pour impressionner les recruteurs et décrocher le poste de vos rêves dans le secteur financier.",
-                category: "Candidats",
-                date: "15 Nov 2024",
-                image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=250&fit=crop"
-              },
-              {
-                title: "Recruter en alternance : les bonnes pratiques",
-                excerpt: "Guide complet pour les entreprises souhaitant intégrer des alternants dans leurs équipes finance.",
-                category: "Entreprises",
-                date: "10 Nov 2024",
-                image: "https://images.unsplash.com/photo-1552664730-d307ca884978?w=400&h=250&fit=crop"
-              },
-              {
-                title: "Les métiers de la finance qui recrutent en 2025",
-                excerpt: "Panorama des opportunités et des compétences les plus recherchées dans le secteur financier.",
-                category: "Tendances",
-                date: "5 Nov 2024",
-                image: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=400&h=250&fit=crop"
-              },
-            ].map((article, index) => (
-              <article 
-                key={index}
-                className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition group"
-              >
-                <div className="aspect-[16/10] bg-gray-100 overflow-hidden">
-                  <img 
-                    src={article.image} 
-                    alt={article.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                </div>
-                <div className="p-6">
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
-                      {article.category}
-                    </span>
-                    <span className="text-sm text-gray-500">{article.date}</span>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-900 mb-2 group-hover:text-emerald-600 transition">
-                    {article.title}
-                  </h3>
-                  <p className="text-slate-600 font-light text-sm mb-4">
-                    {article.excerpt}
-                  </p>
-                  <a 
-                    href="#"
-                    className="text-emerald-600 font-medium text-sm inline-flex items-center gap-1 hover:gap-2 transition-all"
-                  >
-                    Lire la suite
-                    <ArrowRight className="h-4 w-4" />
-                  </a>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <div className="text-center mt-12">
-            <a
-              href="#"
-              className="inline-flex items-center gap-2 px-8 py-4 border border-slate-300 text-slate-700 hover:bg-slate-50 transition font-light"
-            >
-              <FileText className="h-5 w-5" />
-              Voir tous les articles
-            </a>
-          </div>
-        </div>
-      </section>
-
       <Footer />
     </div>
   );

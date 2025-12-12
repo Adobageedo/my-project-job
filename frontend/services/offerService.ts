@@ -1000,7 +1000,7 @@ export async function getRecentOffersForHomepage(limit: number = 5): Promise<{
 
   // Fallback to offers table if homepage_offers is empty or doesn't exist
   const { data, error } = await supabase
-    .from('offers')
+    .from('job_offers')
     .select(`
       id,
       title,
