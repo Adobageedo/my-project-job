@@ -15,6 +15,7 @@ import {
 } from '@/services/companyService';
 import { getCompanyOffers, JobOffer } from '@/services/offerService';
 import { Briefcase, Users, Eye, Plus, TrendingUp, Loader2 } from 'lucide-react';
+import { PendingValidationBanner } from '@/components/company/PendingValidationBanner';
 
 export default function CompanyDashboardPage() {
   const router = useRouter();
@@ -84,6 +85,15 @@ export default function CompanyDashboardPage() {
 
       <div className="flex-1 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Pending Validation Banner */}
+          {company && company.status !== 'active' && (
+            <PendingValidationBanner
+              companyName={company.name}
+              companyStatus={company.status}
+              isVerified={company.is_verified}
+            />
+          )}
+
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div>

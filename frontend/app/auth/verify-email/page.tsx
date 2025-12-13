@@ -9,6 +9,7 @@ function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get('email');
+  const type = searchParams.get('type') || 'candidate'; // 'candidate' ou 'company'
   
   const [isChecking, setIsChecking] = useState(false);
   const [isResending, setIsResending] = useState(false);
@@ -27,9 +28,13 @@ function VerifyEmailContent() {
         
         if (user?.email_confirmed_at) {
           setVerified(true);
-          // Rediriger vers l'onboarding candidat après vérification de l'email
+          // Rediriger vers l'onboarding approprié après vérification de l'email
           setTimeout(() => {
-            router.push('/candidate/onboarding?verified=true');
+            if (type === 'company') {
+              router.push('/company/onboarding?verified=true');
+            } else {
+              router.push('/candidate/onboarding?verified=true');
+            }
           }, 2000);
         }
       } catch (error) {
@@ -155,7 +160,7 @@ function VerifyEmailContent() {
               </button>
 
               <button
-                onClick={() => router.push('/register/candidate?email=' + email)}
+                onClick={() => router.push(type === 'company' ? '/register/company?email=' + email : '/register/candidate?email=' + email)}
                 className="w-full py-3 px-4 text-sm text-gray-600 hover:text-gray-900 transition-colors"
               >
                 Changer d'email
@@ -165,7 +170,7 @@ function VerifyEmailContent() {
             {/* Manual login */}
             <div className="text-center">
               <button
-                onClick={() => router.push('/login')}
+                onClick={() => router.push(type === 'company' ? '/login-company' : '/login')}
                 className="text-sm text-blue-600 hover:text-blue-700 font-medium inline-flex items-center gap-1"
               >
                 J'ai déjà vérifié mon email
@@ -179,10 +184,10 @@ function VerifyEmailContent() {
         {verified && (
           <div className="flex justify-center">
             <button
-              onClick={() => router.push('/candidate/onboarding')}
+              onClick={() => router.push(type === 'company' ? '/company/onboarding' : '/candidate/onboarding')}
               className="px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors inline-flex items-center gap-2"
             >
-              Compléter mon profil
+              {type === 'company' ? 'Configurer mon entreprise' : 'Compléter mon profil'}
               <ArrowRight className="w-5 h-5" />
             </button>
           </div>

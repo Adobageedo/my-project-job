@@ -7,6 +7,7 @@ import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import OfferForm, { OfferFormData } from '@/components/job/OfferForm';
 import { getCurrentCompany } from '@/services/companyService';
+import { getCurrentUser } from '@/services/authService';
 import { 
   getOfferById, 
   updateOffer, 
@@ -15,9 +16,12 @@ import {
   pauseOffer,
   closeOffer,
   duplicateOffer,
+  getOfferManagers,
   JobOffer,
-  JobOfferUpdateData 
+  JobOfferUpdateData,
+  OfferManager
 } from '@/services/offerService';
+import { InviteManagerModal } from '@/components/company/InviteManagerModal';
 import { 
   Loader2, 
   ArrowLeft, 
@@ -29,7 +33,9 @@ import {
   Eye,
   Users,
   MapPin,
-  Briefcase
+  Briefcase,
+  UserPlus,
+  Shield
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -43,6 +49,10 @@ export default function EditOfferPage() {
   const [saving, setSaving] = useState(false);
   const [offer, setOffer] = useState<JobOffer | null>(null);
   const [initialFormData, setInitialFormData] = useState<Partial<OfferFormData> | null>(null);
+  const [managers, setManagers] = useState<OfferManager[]>([]);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const mapEducationDbToUi = (level?: string | null): string[] => {
     switch (level) {
@@ -77,11 +87,16 @@ export default function EditOfferPage() {
   useEffect(() => {
     const loadOffer = async () => {
       try {
-        const company = await getCurrentCompany();
+        const [company, user] = await Promise.all([
+          getCurrentCompany(),
+          getCurrentUser()
+        ]);
         if (!company) {
           router.push('/login-company');
           return;
         }
+        setCompanyId(company.id);
+        setCurrentUserId(user?.id || null);
 
         const offerData = await getOfferById(offerId);
         if (!offerData || offerData.company_id !== company.id) {
@@ -90,6 +105,10 @@ export default function EditOfferPage() {
         }
 
         setOffer(offerData);
+        
+        // Load managers
+        const offerManagers = await getOfferManagers(offerId);
+        setManagers(offerManagers);
         
         // Convert DB format to form format
         const missions = offerData.missions 
@@ -243,6 +262,8 @@ export default function EditOfferPage() {
         return <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">Pourvue</span>;
       case 'expired':
         return <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm font-medium">Expirée</span>;
+      case 'pending_validation':
+        return <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-sm font-medium flex items-center gap-1"><Shield className="h-3 w-3" /> En attente de validation</span>;
       default:
         return null;
     }
@@ -365,6 +386,66 @@ export default function EditOfferPage() {
                 </div>
               </div>
 
+              {/* Managers */}
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-gray-900">Accès à l'offre</h3>
+                  {managers.length > 0 && (
+                    <button
+                      onClick={() => setShowInviteModal(true)}
+                      className="text-purple-600 hover:text-purple-700 text-sm font-medium"
+                    >
+                      + Ajouter
+                    </button>
+                  )}
+                </div>
+                
+                {managers.length === 0 ? (
+                  <button
+                    onClick={() => setShowInviteModal(true)}
+                    className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-purple-600"
+                  >
+                    <UserPlus className="h-6 w-6" />
+                    <span className="text-sm font-medium">Ajouter un manager</span>
+                    <span className="text-xs text-gray-400">Invitez des collaborateurs à gérer cette offre</span>
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    {managers.map((manager) => (
+                      <div key={manager.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
+                        {manager.user?.avatar_url ? (
+                          <img 
+                            src={manager.user.avatar_url} 
+                            alt="" 
+                            className="h-8 w-8 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 text-sm font-medium">
+                            {manager.user?.first_name?.[0]}{manager.user?.last_name?.[0]}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {manager.user?.first_name} {manager.user?.last_name}
+                          </p>
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {manager.permissions?.can_view_applications && (
+                              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px]">Voir</span>
+                            )}
+                            {manager.permissions?.can_change_status && (
+                              <span className="px-1.5 py-0.5 bg-green-100 text-green-600 rounded text-[10px]">Statut</span>
+                            )}
+                            {manager.permissions?.can_add_notes && (
+                              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-600 rounded text-[10px]">Notes</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Stats */}
               <div className="bg-white rounded-xl shadow-lg p-6">
                 <h3 className="font-semibold text-gray-900 mb-4">Statistiques</h3>
@@ -399,6 +480,21 @@ export default function EditOfferPage() {
       </div>
 
       <Footer />
+
+      {/* Invite Manager Modal */}
+      {companyId && currentUserId && (
+        <InviteManagerModal
+          isOpen={showInviteModal}
+          onClose={() => setShowInviteModal(false)}
+          companyId={companyId}
+          invitedBy={currentUserId}
+          onSuccess={async () => {
+            const updatedManagers = await getOfferManagers(offerId);
+            setManagers(updatedManagers);
+            setShowInviteModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }

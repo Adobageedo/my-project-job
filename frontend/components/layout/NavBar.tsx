@@ -8,19 +8,30 @@ import { useAuth } from '@/contexts/AuthContext';
 
 interface NavBarProps {
   role?: 'candidate' | 'company' | 'admin' | null;
+  minimal?: boolean; // Mode onboarding - affiche uniquement logo et déconnexion
+  onLogout?: () => void; // Callback de déconnexion personnalisé
 }
 
-export default function NavBar({ role: propRole }: NavBarProps) {
+export default function NavBar({ role: propRole, minimal = false, onLogout }: NavBarProps) {
   const pathname = usePathname();
   const [showDropdown, setShowDropdown] = useState(false);
   const [showLoginDropdown, setShowLoginDropdown] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const loginDropdownRef = useRef<HTMLDivElement>(null);
-  const { role: authRole, logout, isLoading, candidate } = useAuth();
+  const { role: authRole, logout, isLoading, candidate, company } = useAuth();
   
   // Utiliser le rôle du contexte si disponible, sinon celui passé en prop
   const role = authRole || propRole;
+
+  // Handler de déconnexion
+  const handleLogout = async () => {
+    if (onLogout) {
+      onLogout();
+    } else {
+      await logout();
+    }
+  };
 
   // Vérifier si le candidat doit compléter l'onboarding
   const needsOnboarding = role === 'candidate' && (!candidate || !candidate.firstName);
@@ -41,6 +52,37 @@ export default function NavBar({ role: propRole }: NavBarProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Mode minimal pour l'onboarding
+  if (minimal) {
+    return (
+      <nav className="bg-[#f5f3ef] border-b border-[#e8e4dc]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo */}
+            <Link href="/" className="flex items-center space-x-3">
+              <Briefcase className="h-6 w-6 text-slate-900" strokeWidth={1.5} />
+              <span className="text-xl font-light text-slate-900 tracking-wide">FinanceStages</span>
+            </Link>
+
+            {/* Déconnexion uniquement */}
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-slate-500 hidden sm:block">
+                Compléter le profil
+              </span>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Déconnexion</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
+  }
 
   return (
     <nav className="bg-[#f5f3ef] border-b border-[#e8e4dc]">
@@ -252,16 +294,6 @@ export default function NavBar({ role: propRole }: NavBarProps) {
                   Mes offres
                 </Link>
                 <Link
-                  href="/company/applications"
-                  className={`px-4 py-2 transition font-light ${
-                    isActive('/company/applications')
-                      ? 'text-slate-900 border-b-2 border-slate-900'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Candidatures
-                </Link>
-                <Link
                   href="/company/offers/new"
                   className="px-5 py-2 bg-slate-900 text-white hover:bg-slate-800 transition font-light rounded-lg"
                 >
@@ -334,13 +366,23 @@ export default function NavBar({ role: propRole }: NavBarProps) {
             )}
 
             {role && (
-              <button
-                onClick={() => logout()}
-                className="flex items-center px-4 py-2 text-slate-600 hover:text-red-600 transition font-light ml-4"
-              >
-                <LogOut className="h-4 w-4 mr-1.5" strokeWidth={1.5} />
-                Déconnexion
-              </button>
+              <div className="flex items-center gap-3 ml-4">
+                {/* Logo entreprise */}
+                {role === 'company' && company?.logo_url && (
+                  <img
+                    src={company.logo_url}
+                    alt={company.name}
+                    className="h-8 w-8 rounded-lg object-contain bg-white border border-gray-200"
+                  />
+                )}
+                <button
+                  onClick={() => logout()}
+                  className="flex items-center px-4 py-2 text-slate-600 hover:text-red-600 transition font-light"
+                >
+                  <LogOut className="h-4 w-4 mr-1.5" strokeWidth={1.5} />
+                  Déconnexion
+                </button>
+              </div>
             )}
           </div>
 

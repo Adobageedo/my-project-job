@@ -6,7 +6,10 @@ import Link from 'next/link';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import { getCurrentCompany } from '@/services/companyService';
-import { getCompanyOffers, deleteOffer, JobOffer } from '@/services/offerService';
+import { getCompanyOffers, deleteOffer, JobOffer, getOfferManagers, OfferManager } from '@/services/offerService';
+import { InviteManagerModal } from '@/components/company/InviteManagerModal';
+import { getCurrentUser } from '@/services/authService';
+import { getCurrentUserPermissions, UserPermissions } from '@/services/permissionsService';
 import { 
   Plus, 
   Search, 
@@ -24,21 +27,41 @@ import {
   ChevronRight,
   Briefcase,
   Loader2,
+  UserPlus,
+  Shield,
 } from 'lucide-react';
+import { PendingValidationBanner } from '@/components/company/PendingValidationBanner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 type ViewMode = 'grid' | 'list';
-type OfferFilter = 'all' | 'active' | 'filled' | 'expired' | 'draft';
+type OfferFilter = 'all' | 'active' | 'filled' | 'expired' | 'draft' | 'pending_validation';
+
+// Extended offer type with managers
+interface OfferWithManagers extends JobOffer {
+  managers?: OfferManager[];
+}
 
 export default function CompanyOffersPage() {
   const router = useRouter();
   const [companyId, setCompanyId] = useState<string | null>(null);
-  const [offers, setOffers] = useState<JobOffer[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [company, setCompany] = useState<{ name: string; status: 'pending' | 'active' | 'suspended' | 'inactive'; is_verified: boolean } | null>(null);
+  const [offers, setOffers] = useState<OfferWithManagers[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<OfferFilter>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [loading, setLoading] = useState(true);
+  const [permissions, setPermissions] = useState<UserPermissions | null>(null);
+  
+  // Manager modal state
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [selectedOfferForManager, setSelectedOfferForManager] = useState<string | null>(null);
+  const [hoveredManagerOffer, setHoveredManagerOffer] = useState<string | null>(null);
+
+  // Permissions helpers
+  const canCreateOffers = permissions?.is_owner || permissions?.is_primary_contact || permissions?.permissions.can_create_offers;
+  const canManageTeam = permissions?.is_owner || permissions?.is_primary_contact || permissions?.permissions.can_manage_team;
 
   const loadOffers = async (cId: string) => {
     const result = await getCompanyOffers(cId);
@@ -48,13 +71,42 @@ export default function CompanyOffersPage() {
   useEffect(() => {
     const init = async () => {
       try {
-        const company = await getCurrentCompany();
-        if (!company) {
+        const [companyData, user, userPermissions] = await Promise.all([
+          getCurrentCompany(),
+          getCurrentUser(),
+          getCurrentUserPermissions(),
+        ]);
+        if (!companyData) {
           router.push('/login-company');
           return;
         }
-        setCompanyId(company.id);
-        await loadOffers(company.id);
+        setCompanyId(companyData.id);
+        setCurrentUserId(user?.id || null);
+        setPermissions(userPermissions);
+        setCompany({
+          name: companyData.name,
+          status: companyData.status,
+          is_verified: companyData.is_verified
+        });
+        
+        // Load offers with managers
+        const result = await getCompanyOffers(companyData.id);
+        let offersToShow = result.offers;
+        
+        // Filtrer les offres selon les permissions
+        // Si l'utilisateur n'a pas accès à toutes les offres, filtrer
+        if (userPermissions && !userPermissions.is_owner && !userPermissions.is_primary_contact && !userPermissions.permissions.can_view_all_offers) {
+          const authorizedOfferIds = userPermissions.offer_ids || [];
+          offersToShow = result.offers.filter(offer => authorizedOfferIds.includes(offer.id));
+        }
+        
+        const offersWithManagers = await Promise.all(
+          offersToShow.map(async (offer) => {
+            const managers = await getOfferManagers(offer.id);
+            return { ...offer, managers };
+          })
+        );
+        setOffers(offersWithManagers);
       } catch (error) {
         console.error('Error loading offers:', error);
       } finally {
@@ -64,6 +116,28 @@ export default function CompanyOffersPage() {
 
     init();
   }, [router]);
+  
+  const handleOpenInviteModal = (offerId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedOfferForManager(offerId);
+    setShowInviteModal(true);
+  };
+  
+  const handleInviteSuccess = async () => {
+    if (companyId) {
+      const result = await getCompanyOffers(companyId);
+      const offersWithManagers = await Promise.all(
+        result.offers.map(async (offer) => {
+          const managers = await getOfferManagers(offer.id);
+          return { ...offer, managers };
+        })
+      );
+      setOffers(offersWithManagers);
+    }
+    setShowInviteModal(false);
+    setSelectedOfferForManager(null);
+  };
 
   const handleDelete = async (offerId: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -111,6 +185,8 @@ export default function CompanyOffersPage() {
         return <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium flex items-center gap-1"><PauseCircle className="h-3 w-3" /> Brouillon</span>;
       case 'paused':
         return <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium flex items-center gap-1"><PauseCircle className="h-3 w-3" /> En pause</span>;
+      case 'pending_validation':
+        return <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium flex items-center gap-1"><Shield className="h-3 w-3" /> En attente de validation</span>;
       default:
         return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">{status}</span>;
     }
@@ -134,21 +210,35 @@ export default function CompanyOffersPage() {
 
       <div className="flex-1 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Pending Validation Banner */}
+          {company && company.status !== 'active' && (
+            <PendingValidationBanner
+              companyName={company.name}
+              companyStatus={company.status}
+              isVerified={company.is_verified}
+            />
+          )}
+
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-3xl font-bold text-slate-900 mb-2">Mes offres</h1>
               <p className="text-gray-600">
-                Gérez vos offres de stage et d'alternance
+                {permissions?.permissions.can_view_all_offers || permissions?.is_owner || permissions?.is_primary_contact
+                  ? 'Gérez vos offres de stage et d\'alternance'
+                  : `Vous avez accès à ${offers.length} offre${offers.length > 1 ? 's' : ''}`
+                }
               </p>
             </div>
-            <Link
-              href="/company/offers/new"
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold flex items-center gap-2"
-            >
-              <Plus className="h-5 w-5" />
-              Nouvelle offre
-            </Link>
+            {canCreateOffers && (
+              <Link
+                href="/company/offers/new"
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold flex items-center gap-2"
+              >
+                <Plus className="h-5 w-5" />
+                Nouvelle offre
+              </Link>
+            )}
           </div>
 
           {/* Stats */}
@@ -192,7 +282,7 @@ export default function CompanyOffersPage() {
               <div className="flex items-center gap-3">
                 {/* Filtres par statut */}
                 <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-                  {(['all', 'active', 'filled', 'expired'] as OfferFilter[]).map(filter => (
+                  {(['all', 'active', 'pending_validation', 'draft', 'filled', 'expired'] as OfferFilter[]).map(filter => (
                     <button
                       key={filter}
                       onClick={() => setStatusFilter(filter)}
@@ -202,7 +292,11 @@ export default function CompanyOffersPage() {
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
                     >
-                      {filter === 'all' ? 'Toutes' : filter === 'active' ? 'Actives' : filter === 'filled' ? 'Pourvues' : 'Expirées'}
+                      {filter === 'all' ? 'Toutes' : 
+                       filter === 'active' ? 'Actives' : 
+                       filter === 'pending_validation' ? 'En attente' :
+                       filter === 'draft' ? 'Brouillons' :
+                       filter === 'filled' ? 'Pourvues' : 'Expirées'}
                     </button>
                   ))}
                 </div>
@@ -272,13 +366,88 @@ export default function CompanyOffersPage() {
                           )}
                         </div>
 
-                        {/* Candidatures */}
+                        {/* Candidatures et Managers */}
                         <div className="flex items-center justify-between pt-4 border-t border-gray-100">
                           <div className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-gray-500" />
                             <span className="text-sm text-gray-600">
                               {offer.applications_count} candidature{offer.applications_count > 1 ? 's' : ''}
                             </span>
+                          </div>
+                          
+                          {/* Managers indicator */}
+                          <div 
+                            className="relative"
+                            onMouseEnter={() => setHoveredManagerOffer(offer.id)}
+                            onMouseLeave={() => setHoveredManagerOffer(null)}
+                          >
+                            {offer.managers && offer.managers.length > 0 ? (
+                              <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-50 rounded-lg cursor-default">
+                                <Shield className="h-3.5 w-3.5 text-purple-600" />
+                                <span className="text-xs text-purple-700 font-medium">
+                                  {offer.managers.length === 1 
+                                    ? `${offer.managers[0].user?.first_name || ''} ${offer.managers[0].user?.last_name || ''}`.trim() || 'Manager'
+                                    : `${offer.managers.length} personnes`
+                                  }
+                                </span>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={(e) => handleOpenInviteModal(offer.id, e)}
+                                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition"
+                              >
+                                <UserPlus className="h-3.5 w-3.5" />
+                                <span>Ajouter manager</span>
+                              </button>
+                            )}
+                            
+                            {/* Tooltip with managers details */}
+                            {hoveredManagerOffer === offer.id && offer.managers && offer.managers.length > 0 && (
+                              <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 p-3 z-20">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-semibold text-gray-700">Accès à cette offre</span>
+                                  <button
+                                    onClick={(e) => handleOpenInviteModal(offer.id, e)}
+                                    className="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                                  >
+                                    + Ajouter
+                                  </button>
+                                </div>
+                                <div className="space-y-2">
+                                  {offer.managers.map((manager) => (
+                                    <div key={manager.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                                      {manager.user?.avatar_url ? (
+                                        <img 
+                                          src={manager.user.avatar_url} 
+                                          alt="" 
+                                          className="h-6 w-6 rounded-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="h-6 w-6 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 text-xs font-medium">
+                                          {manager.user?.first_name?.[0]}{manager.user?.last_name?.[0]}
+                                        </div>
+                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-gray-900 truncate">
+                                          {manager.user?.first_name} {manager.user?.last_name}
+                                        </p>
+                                        <div className="flex flex-wrap gap-1 mt-0.5">
+                                          {manager.permissions?.can_view_applications && (
+                                            <span className="px-1 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px]">Voir</span>
+                                          )}
+                                          {manager.permissions?.can_change_status && (
+                                            <span className="px-1 py-0.5 bg-green-100 text-green-600 rounded text-[10px]">Statut</span>
+                                          )}
+                                          {manager.permissions?.can_add_notes && (
+                                            <span className="px-1 py-0.5 bg-amber-100 text-amber-600 rounded text-[10px]">Notes</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -292,6 +461,13 @@ export default function CompanyOffersPage() {
                           <ChevronRight className="h-4 w-4" />
                         </span>
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => handleOpenInviteModal(offer.id, e)}
+                            className="p-2 hover:bg-purple-100 rounded-lg transition"
+                            title="Gérer les accès"
+                          >
+                            <UserPlus className="h-4 w-4 text-gray-500 hover:text-purple-600" />
+                          </button>
                           <button 
                             onClick={(e) => { e.stopPropagation(); router.push(`/company/offers/${offer.id}`); }}
                             className="p-2 hover:bg-gray-200 rounded-lg transition"
@@ -390,7 +566,7 @@ export default function CompanyOffersPage() {
                   : 'Commencez par créer votre première offre'
                 }
               </p>
-              {!searchTerm && statusFilter === 'all' && (
+              {!searchTerm && statusFilter === 'all' && canCreateOffers && (
                 <Link
                   href="/company/offers/new"
                   className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
@@ -403,6 +579,20 @@ export default function CompanyOffersPage() {
           )}
         </div>
       </div>
+
+      {/* Invite Manager Modal */}
+      {companyId && currentUserId && (
+        <InviteManagerModal
+          isOpen={showInviteModal}
+          onClose={() => {
+            setShowInviteModal(false);
+            setSelectedOfferForManager(null);
+          }}
+          companyId={companyId}
+          invitedBy={currentUserId}
+          onSuccess={handleInviteSuccess}
+        />
+      )}
 
       <Footer />
     </div>

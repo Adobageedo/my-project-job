@@ -2,15 +2,16 @@
 
 import { useState, Suspense } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import { Mail, Lock, Chrome, AlertCircle, Building2, Loader2, CheckCircle, ArrowRight, Clock } from 'lucide-react';
-import { login, logout } from '@/services/authService';
 import { useAuth } from '@/contexts/AuthContext';
 import { checkThrottle, recordSuccess, formatWaitTime } from '@/lib/rateLimit';
 
 function LoginCompanyContent() {
-  const { user, isLoading: authLoading, setUserRole } = useAuth();
+  const router = useRouter();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -18,8 +19,7 @@ function LoginCompanyContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
 
-  // Note: La redirection est gérée automatiquement par AuthContext
-  // Après login réussi, AuthContext détecte le user et redirige vers le dashboard
+  // Note: La redirection est gérée manuellement après vérification du rôle
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,10 +29,10 @@ function LoginCompanyContent() {
     // Vérification du rate limit côté client
     const throttleKey = `login-company-${email}`;
     const throttleCheck = checkThrottle(throttleKey, {
-      minInterval: 1000, // 1 seconde entre chaque tentative
-      maxAttempts: 5, // 5 tentatives max
-      lockoutDuration: 5 * 60 * 1000, // 5 minutes de blocage
-      windowDuration: 5 * 60 * 1000, // Fenêtre de 5 minutes
+      minInterval: 1000,
+      maxAttempts: 5,
+      lockoutDuration: 5 * 60 * 1000,
+      windowDuration: 5 * 60 * 1000,
     });
 
     if (!throttleCheck.allowed) {
@@ -43,26 +43,22 @@ function LoginCompanyContent() {
     setIsLoading(true);
 
     try {
-      // Connexion via authService
-      const authUser = await login(email, password);
+      // Connexion via AuthContext (même logique que login-candidate)
+      const result = await login(email, password);
 
-      // Vérifier si c'est une entreprise
-      if (authUser.role !== 'company') {
-        setError('Ce compte n\'est pas un compte entreprise. Veuillez utiliser la page de connexion appropriée.');
-        await logout();
+      if (!result.success) {
+        setError(result.error || 'Email ou mot de passe incorrect');
         setIsLoading(false);
         return;
       }
 
       // Succès - reset le throttle
       recordSuccess(throttleKey);
-
-      // Enregistrer le rôle dans le contexte
-      setUserRole('company');
-
-      // Afficher le succès - AuthContext gérera la redirection automatiquement
       setLoginSuccess(true);
       setIsLoading(false);
+
+      // AuthContext gère la redirection automatiquement
+      // Le user sera redirigé vers /company/dashboard ou /company/onboarding
     } catch (err) {
       console.error('Erreur de connexion:', err);
       setError('Email ou mot de passe incorrect');

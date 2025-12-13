@@ -14,6 +14,8 @@ import { RecruitCRMModule } from './modules/recruitcrm/recruitcrm.module';
 import { EmailModule } from './modules/email/email.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AccountModule } from './modules/account/account.module';
+import { TeamModule } from './modules/team/team.module';
+import { KpiModule } from './modules/kpi/kpi.module';
 
 // Config validation
 import { validateEnv } from './config/env.validation';
@@ -23,7 +25,7 @@ import { validateEnv } from './config/env.validation';
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env.prod',
+      envFilePath: '.env', //'.env.prod',
       validate: validateEnv,
     }),
 
@@ -49,6 +51,8 @@ import { validateEnv } from './config/env.validation';
     EmailModule,
     AdminModule,
     AccountModule,
+    TeamModule,
+    KpiModule,
   ],
 })
 export class AppModule {}

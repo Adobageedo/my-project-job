@@ -1,19 +1,62 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
-import { candidates, companies, jobOffers, applications } from '@/data';
-import { Users, Building2, Briefcase, TrendingUp, Activity } from 'lucide-react';
+import { 
+  Users, 
+  Building2, 
+  Briefcase, 
+  TrendingUp, 
+  TrendingDown,
+  Activity, 
+  Home, 
+  ShieldCheck,
+  Bell,
+  FileText,
+  CheckCircle,
+  Loader2,
+  RefreshCw,
+  ArrowUpRight,
+  ArrowDownRight,
+} from 'lucide-react';
+import { getPlatformKPIs, PlatformKPIs } from '@/services/kpiService';
+import { getPendingCompaniesCount } from '@/services/adminCompanyService';
 
 export default function AdminDashboardPage() {
-  const stats = {
-    totalCandidates: candidates.length,
-    totalCompanies: companies.length,
-    totalOffers: jobOffers.length,
-    activeOffers: jobOffers.filter((o) => o.status === 'active').length,
-    filledOffers: jobOffers.filter((o) => o.status === 'filled').length,
-    expiredOffers: jobOffers.filter((o) => o.status === 'expired').length,
-    totalApplications: applications.length,
+  const [kpis, setKpis] = useState<PlatformKPIs | null>(null);
+  const [pendingCompaniesCount, setPendingCompaniesCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadKPIs = async () => {
+    try {
+      const [kpiData, pendingCount] = await Promise.all([
+        getPlatformKPIs(),
+        getPendingCompaniesCount(),
+      ]);
+      setKpis(kpiData);
+      setPendingCompaniesCount(pendingCount);
+    } catch (err) {
+      console.error('Error loading KPIs:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadKPIs();
+  }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadKPIs();
+  };
+
+  const formatChange = (change: number) => {
+    if (change > 0) return `+${change}`;
+    return change.toString();
   };
 
   // Activité récente simulée
@@ -75,6 +118,18 @@ export default function AdminDashboardPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <NavBar role="admin" />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <NavBar role="admin" />
@@ -82,22 +137,51 @@ export default function AdminDashboardPage() {
       <div className="flex-1 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-slate-900 mb-2">Dashboard Administrateur</h1>
-            <p className="text-gray-600">
-              Vue d'ensemble de la plateforme et gestion des utilisateurs
-            </p>
+          <div className="mb-8 flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900 mb-2">Dashboard Administrateur</h1>
+              <p className="text-gray-600">
+                Vue d'ensemble de la plateforme et indicateurs clés
+              </p>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Actualiser
+            </button>
           </div>
 
-          {/* Main Stats */}
+          {/* Alert for pending companies */}
+          {pendingCompaniesCount > 0 && (
+            <a
+              href="/admin/pending-companies"
+              className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-3 hover:bg-amber-100 transition"
+            >
+              <ShieldCheck className="h-6 w-6 text-amber-600" />
+              <span className="text-amber-800 font-medium">
+                {pendingCompaniesCount} entreprise{pendingCompaniesCount > 1 ? 's' : ''} en attente de validation
+              </span>
+              <ArrowUpRight className="h-5 w-5 text-amber-600 ml-auto" />
+            </a>
+          )}
+
+          {/* Main KPIs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="flex items-center justify-between mb-4">
                 <Users className="h-8 w-8 text-blue-600" />
-                <TrendingUp className="h-5 w-5 text-green-500" />
+                {kpis && kpis.candidatesRegisteredChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-sm ${kpis.candidatesRegisteredChange > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {kpis.candidatesRegisteredChange > 0 ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                    {formatChange(kpis.candidatesRegisteredChange)}
+                  </div>
+                )}
               </div>
               <div className="text-3xl font-bold text-slate-900 mb-1">
-                {stats.totalCandidates}
+                {kpis?.candidatesRegistered || 0}
               </div>
               <div className="text-gray-600 text-sm">Candidats inscrits</div>
             </div>
@@ -105,59 +189,106 @@ export default function AdminDashboardPage() {
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="flex items-center justify-between mb-4">
                 <Building2 className="h-8 w-8 text-blue-600" />
-                <TrendingUp className="h-5 w-5 text-green-500" />
+                {kpis && kpis.companiesRegisteredChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-sm ${kpis.companiesRegisteredChange > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {kpis.companiesRegisteredChange > 0 ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                    {formatChange(kpis.companiesRegisteredChange)}
+                  </div>
+                )}
               </div>
               <div className="text-3xl font-bold text-slate-900 mb-1">
-                {stats.totalCompanies}
+                {kpis?.companiesRegistered || 0}
               </div>
-              <div className="text-gray-600 text-sm">Entreprises</div>
+              <div className="text-gray-600 text-sm">Entreprises inscrites</div>
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="flex items-center justify-between mb-4">
                 <Briefcase className="h-8 w-8 text-blue-600" />
+                {kpis && kpis.offersCreatedChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-sm ${kpis.offersCreatedChange > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {kpis.offersCreatedChange > 0 ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                    {formatChange(kpis.offersCreatedChange)}
+                  </div>
+                )}
               </div>
               <div className="text-3xl font-bold text-slate-900 mb-1">
-                {stats.totalOffers}
+                {kpis?.offersCreated || 0}
               </div>
-              <div className="text-gray-600 text-sm">Offres publiées</div>
-              <div className="text-green-600 text-xs mt-2">
-                {stats.activeOffers} actives
-              </div>
+              <div className="text-gray-600 text-sm">Offres créées</div>
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="flex items-center justify-between mb-4">
-                <Activity className="h-8 w-8 text-blue-600" />
+                <FileText className="h-8 w-8 text-blue-600" />
+                {kpis && kpis.applicationsChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-sm ${kpis.applicationsChange > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {kpis.applicationsChange > 0 ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                    {formatChange(kpis.applicationsChange)}
+                  </div>
+                )}
               </div>
               <div className="text-3xl font-bold text-slate-900 mb-1">
-                {stats.totalApplications}
+                {kpis?.totalApplications || 0}
               </div>
               <div className="text-gray-600 text-sm">Candidatures</div>
             </div>
           </div>
 
-          {/* Offers Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="bg-green-50 p-6 rounded-lg shadow-md">
-              <div className="text-2xl font-bold text-green-800 mb-1">
-                {stats.activeOffers}
+          {/* Activity KPIs */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+            <div className="bg-green-50 p-5 rounded-lg shadow-sm border border-green-100">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+                <span className="text-green-800 text-sm font-medium">Offres pourvues</span>
               </div>
-              <div className="text-green-800 text-sm">Offres actives</div>
+              <div className="text-2xl font-bold text-green-800">
+                {kpis?.offersFilled || 0}
+              </div>
             </div>
 
-            <div className="bg-blue-50 p-6 rounded-lg shadow-md">
-              <div className="text-2xl font-bold text-blue-800 mb-1">
-                {stats.filledOffers}
+            <div className="bg-blue-50 p-5 rounded-lg shadow-sm border border-blue-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity className="h-5 w-5 text-blue-600" />
+                <span className="text-blue-800 text-sm font-medium">Candidats actifs</span>
               </div>
-              <div className="text-blue-800 text-sm">Postes pourvus</div>
+              <div className="text-2xl font-bold text-blue-800">
+                {kpis?.activeCandidates || 0}
+              </div>
+              <div className="text-blue-600 text-xs mt-1">derniers 30 jours</div>
             </div>
 
-            <div className="bg-gray-50 p-6 rounded-lg shadow-md">
-              <div className="text-2xl font-bold text-gray-800 mb-1">
-                {stats.expiredOffers}
+            <div className="bg-purple-50 p-5 rounded-lg shadow-sm border border-purple-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Users className="h-5 w-5 text-purple-600" />
+                <span className="text-purple-800 text-sm font-medium">Utilisateurs entreprise actifs</span>
               </div>
-              <div className="text-gray-800 text-sm">Offres expirées</div>
+              <div className="text-2xl font-bold text-purple-800">
+                {kpis?.activeCompanyUsers || 0}
+              </div>
+              <div className="text-purple-600 text-xs mt-1">derniers 30 jours</div>
+            </div>
+
+            <div className="bg-amber-50 p-5 rounded-lg shadow-sm border border-amber-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Building2 className="h-5 w-5 text-amber-600" />
+                <span className="text-amber-800 text-sm font-medium">Entreprises actives</span>
+              </div>
+              <div className="text-2xl font-bold text-amber-800">
+                {kpis?.companiesWithActiveUsers || 0}
+              </div>
+              <div className="text-amber-600 text-xs mt-1">avec ≥1 utilisateur actif</div>
+            </div>
+
+            <div className="bg-indigo-50 p-5 rounded-lg shadow-sm border border-indigo-100">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingUp className="h-5 w-5 text-indigo-600" />
+                <span className="text-indigo-800 text-sm font-medium">Moy. candidatures</span>
+              </div>
+              <div className="text-2xl font-bold text-indigo-800">
+                {kpis?.avgApplicationsPerActiveUser || 0}
+              </div>
+              <div className="text-indigo-600 text-xs mt-1">par candidat actif</div>
             </div>
           </div>
 
@@ -209,7 +340,18 @@ export default function AdminDashboardPage() {
           </div>
 
           {/* Quick Actions */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6 mt-8">
+            <a
+              href="/admin/pending-companies"
+              className="bg-amber-50 border-2 border-amber-200 p-6 rounded-lg shadow-md hover:shadow-lg transition cursor-pointer"
+            >
+              <ShieldCheck className="h-8 w-8 text-amber-600 mb-4" />
+              <h3 className="font-semibold text-slate-900 mb-2">Valider entreprises</h3>
+              <p className="text-gray-600 text-sm">
+                Approuver les nouvelles entreprises inscrites
+              </p>
+            </a>
+
             <a
               href="/admin/users"
               className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition cursor-pointer"
@@ -232,13 +374,27 @@ export default function AdminDashboardPage() {
               </p>
             </a>
 
-            <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition cursor-pointer">
-              <Activity className="h-8 w-8 text-blue-600 mb-4" />
-              <h3 className="font-semibold text-slate-900 mb-2">Statistiques avancées</h3>
+            <a
+              href="/admin/homepage"
+              className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition cursor-pointer"
+            >
+              <Home className="h-8 w-8 text-blue-600 mb-4" />
+              <h3 className="font-semibold text-slate-900 mb-2">Page d'accueil</h3>
               <p className="text-gray-600 text-sm">
-                Analyser les performances et tendances de la plateforme
+                Configurer le contenu et les sections de la page d'accueil
               </p>
-            </div>
+            </a>
+
+            <a
+              href="/admin/notifications"
+              className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition cursor-pointer"
+            >
+              <Bell className="h-8 w-8 text-blue-600 mb-4" />
+              <h3 className="font-semibold text-slate-900 mb-2">Notifications KPI</h3>
+              <p className="text-gray-600 text-sm">
+                Configurer les rapports KPI par email
+              </p>
+            </a>
           </div>
         </div>
       </div>

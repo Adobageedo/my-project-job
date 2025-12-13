@@ -530,6 +530,37 @@ export async function removeSavedOffer(
 }
 
 /**
+ * Upload cover letter file to storage
+ */
+export async function uploadCoverLetterFile(
+  candidateId: string,
+  jobOfferId: string,
+  file: File
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  const fileExt = file.name.split('.').pop()?.toLowerCase() || 'pdf';
+  const timestamp = Date.now();
+  const fileName = `${candidateId}/${jobOfferId}_cover_letter_${timestamp}.${fileExt}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('cover-letters')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: true
+    });
+
+  if (uploadError) {
+    console.error('Cover letter upload error:', uploadError);
+    return { success: false, error: uploadError.message };
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('cover-letters')
+    .getPublicUrl(fileName);
+
+  return { success: true, url: publicUrl };
+}
+
+/**
  * Apply to a job offer
  */
 export async function applyToOffer(
@@ -538,7 +569,8 @@ export async function applyToOffer(
   companyId: string,
   coverLetter?: string,
   cvUrl?: string,
-  customAnswers?: Record<string, unknown>
+  customAnswers?: Record<string, unknown>,
+  coverLetterFileUrl?: string
 ): Promise<{ success: boolean; applicationId?: string; error?: string }> {
   // Validate UUIDs are strings
   if (typeof candidateId !== 'string' || !candidateId) {
@@ -572,6 +604,7 @@ export async function applyToOffer(
       job_offer_id: jobOfferId,
       company_id: companyId,
       cover_letter: coverLetter,
+      cover_letter_file_url: coverLetterFileUrl,
       custom_answers: customAnswers || {},
       cv_snapshot_url: cvSnapshotUrl
     })
@@ -591,14 +624,37 @@ export async function applyToOffer(
 
 /**
  * Withdraw application
+ * Supprime physiquement la candidature pour permettre de re-candidater
  */
 export async function withdrawApplication(
   applicationId: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Supprimer physiquement la candidature pour permettre de re-candidater
   const { error } = await supabase
     .from('applications')
-    .update({ status: 'withdrawn' })
+    .delete()
     .eq('id', applicationId);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+/**
+ * Withdraw application by offer ID (for candidate)
+ * Utile quand on n'a pas l'ID de la candidature
+ */
+export async function withdrawApplicationByOffer(
+  candidateId: string,
+  jobOfferId: string
+): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase
+    .from('applications')
+    .delete()
+    .eq('candidate_id', candidateId)
+    .eq('job_offer_id', jobOfferId);
 
   if (error) {
     return { success: false, error: error.message };

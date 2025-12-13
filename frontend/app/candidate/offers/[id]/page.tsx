@@ -43,6 +43,9 @@ import {
   AlertTriangle,
   Eye,
   FileText,
+  Globe,
+  Linkedin,
+  ExternalLink,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -452,7 +455,7 @@ export default function OfferDetailPage() {
                   <Building2 className="h-5 w-5 text-blue-600" />
                   À propos de {offer.company?.name || 'l\'entreprise'}
                 </h2>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
                     <p className="text-sm text-gray-500">Secteur d'activité</p>
                     <p className="font-medium text-gray-900">{offer.company?.sector || 'Non spécifié'}</p>
@@ -462,6 +465,36 @@ export default function OfferDetailPage() {
                     <p className="font-medium text-gray-900">{offer.company?.size ? `${offer.company.size} employés` : 'Non spécifié'}</p>
                   </div>
                 </div>
+                
+                {/* Liens entreprise */}
+                {(offer.company?.website || offer.company?.linkedin_url) && (
+                  <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-gray-200">
+                    {offer.company?.website && (
+                      <a
+                        href={offer.company.website.startsWith('http') ? offer.company.website : `https://${offer.company.website}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition text-sm font-medium"
+                      >
+                        <Globe className="h-4 w-4 text-blue-600" />
+                        Site officiel
+                        <ExternalLink className="h-3 w-3 text-gray-400" />
+                      </a>
+                    )}
+                    {offer.company?.linkedin_url && (
+                      <a
+                        href={offer.company.linkedin_url.startsWith('http') ? offer.company.linkedin_url : `https://${offer.company.linkedin_url}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-[#0A66C2] text-white rounded-lg hover:bg-[#004182] transition text-sm font-medium"
+                      >
+                        <Linkedin className="h-4 w-4" />
+                        Page LinkedIn
+                        <ExternalLink className="h-3 w-3 opacity-70" />
+                      </a>
+                    )}
+                  </div>
+                )}
               </section>
 
               {/* Apply Section */}

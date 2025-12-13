@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
-import { Building2, Mail, Lock, Phone, User, Briefcase, Users, CheckSquare, AlertCircle, Loader2, Shield, CheckCircle, ChevronDown, HelpCircle } from 'lucide-react';
-import { registerCompany } from '@/services/authService';
+import { Mail, Lock, User, Briefcase, AlertCircle, Loader2, Shield, CheckCircle, ChevronDown, HelpCircle, Linkedin, Info } from 'lucide-react';
+import { registerCompanyUser, signInWithGoogle, signInWithMicrosoft, signInWithLinkedIn } from '@/services/authService';
 import { useAuth } from '@/contexts/AuthContext';
 import Captcha, { CAPTCHA_SITE_KEYS, CAPTCHA_CONFIG } from '@/components/security/Captcha';
 import { checkPersistentRateLimit, formatWaitTime, clearPersistentRateLimit } from '@/lib/rateLimit';
@@ -21,17 +21,14 @@ export default function RegisterCompanyPage() {
   const [rateLimitError, setRateLimitError] = useState('');
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const captchaRef = useRef<HTMLDivElement>(null);
+  
+  // Formulaire simplifié : nom, rôle, email, mot de passe
   const [formData, setFormData] = useState({
-    companyName: '',
-    siret: '',
-    sector: '',
-    size: '1000-5000',
-    contactName: '',
-    contactEmail: '',
-    contactPhone: '',
+    fullName: '',
+    email: '',
     password: '',
     confirmPassword: '',
-    roles: ['company'] as CompanyRole[],
+    role: 'rh' as CompanyRole,
   });
 
   const handleCaptchaVerify = (token: string) => {
@@ -43,20 +40,34 @@ export default function RegisterCompanyPage() {
     setCaptchaToken(null);
   };
 
-  const handleRoleToggle = (role: CompanyRole) => {
-    const currentRoles = formData.roles;
-    if (currentRoles.includes(role)) {
-      // Ne pas permettre de désélectionner si c'est le dernier rôle
-      if (currentRoles.length === 1) return;
-      setFormData({
-        ...formData,
-        roles: currentRoles.filter(r => r !== role),
-      });
-    } else {
-      setFormData({
-        ...formData,
-        roles: [...currentRoles, role],
-      });
+  // Handlers OAuth
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    try {
+      await signInWithGoogle(`${window.location.origin}/auth/callback?type=company`);
+    } catch (err) {
+      setError('Erreur lors de la connexion avec Google');
+      setIsLoading(false);
+    }
+  };
+
+  const handleMicrosoftSignIn = async () => {
+    setIsLoading(true);
+    try {
+      await signInWithMicrosoft(`${window.location.origin}/auth/callback?type=company`);
+    } catch (err) {
+      setError('Erreur lors de la connexion avec Microsoft');
+      setIsLoading(false);
+    }
+  };
+
+  const handleLinkedInSignIn = async () => {
+    setIsLoading(true);
+    try {
+      await signInWithLinkedIn(`${window.location.origin}/auth/callback?type=company`);
+    } catch (err) {
+      setError('Erreur lors de la connexion avec LinkedIn');
+      setIsLoading(false);
     }
   };
 
@@ -68,8 +79,8 @@ export default function RegisterCompanyPage() {
     // Vérification du rate limit côté client
     const rateCheck = checkPersistentRateLimit('register-company', {
       maxAttempts: 5,
-      windowMs: 60 * 60 * 1000, // 1 hour
-      lockoutMs: 30 * 60 * 1000, // 30 minutes lockout
+      windowMs: 60 * 60 * 1000,
+      lockoutMs: 30 * 60 * 1000,
     });
 
     if (!rateCheck.allowed) {
@@ -94,25 +105,23 @@ export default function RegisterCompanyPage() {
       return;
     }
 
-    if (formData.roles.length === 0) {
-      setError('Veuillez sélectionner au moins un rôle');
+    if (!formData.fullName.trim()) {
+      setError('Veuillez entrer votre nom');
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Utiliser le service d'authentification avec le captcha token
-      await registerCompany(formData.contactEmail, formData.password, {
-        companyName: formData.companyName,
-        siret: formData.siret,
-        sector: formData.sector,
-        size: formData.size,
-        contactName: formData.contactName,
-        contactPhone: formData.contactPhone,
-        roles: formData.roles,
-        captchaToken,
+      // Inscription simplifiée - création du compte utilisateur uniquement
+      const result = await registerCompanyUser(formData.email, formData.password, {
+        fullName: formData.fullName,
+        role: formData.role,
       });
+
+      if (!result.success) {
+        throw new Error(result.error || 'Erreur lors de l\'inscription');
+      }
 
       // Inscription réussie - nettoyer le rate limit
       clearPersistentRateLimit('register-company');
@@ -120,8 +129,9 @@ export default function RegisterCompanyPage() {
       // Enregistrer le rôle dans le contexte
       setUserRole('company');
 
-      // Rediriger vers une page de confirmation d'email
-      router.push(`/auth/verify-email?email=${encodeURIComponent(formData.contactEmail)}`);
+      // Rediriger vers la page de vérification email
+      // Après validation, l'utilisateur sera redirigé vers /company/onboarding
+      router.push(`/auth/verify-email?email=${encodeURIComponent(formData.email)}&type=company`);
 
     } catch (err: unknown) {
       console.error('Erreur inscription:', err);
@@ -131,7 +141,6 @@ export default function RegisterCompanyPage() {
       } else {
         setError(errorMessage || 'Une erreur est survenue lors de l\'inscription');
       }
-      // Reset captcha on error
       setCaptchaToken(null);
       setIsLoading(false);
     }
@@ -149,7 +158,7 @@ export default function RegisterCompanyPage() {
       <NavBar />
 
       <div className="flex-1 py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-lg mx-auto">
           <div className="bg-white rounded-lg shadow-lg p-8">
             {/* Titre */}
             <div className="text-center mb-8">
@@ -167,311 +176,183 @@ export default function RegisterCompanyPage() {
               </div>
             )}
 
-            {/* Formulaire */}
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Informations entreprise */}
+            {/* Connexion sociale */}
+            <div className="mb-8">
+              <p className="text-sm text-gray-600 text-center mb-4">
+                Inscription rapide avec votre compte professionnel
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={isLoading}
+                  className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  <span className="text-sm font-medium text-gray-700">Google</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleMicrosoftSignIn}
+                  disabled={isLoading}
+                  className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24">
+                    <path fill="#F25022" d="M1 1h10v10H1z"/>
+                    <path fill="#00A4EF" d="M1 13h10v10H1z"/>
+                    <path fill="#7FBA00" d="M13 1h10v10H13z"/>
+                    <path fill="#FFB900" d="M13 13h10v10H13z"/>
+                  </svg>
+                  <span className="text-sm font-medium text-gray-700">Microsoft</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLinkedInSignIn}
+                  disabled={isLoading}
+                  className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  <Linkedin className="h-5 w-5 text-[#0A66C2]" />
+                  <span className="text-sm font-medium text-gray-700">LinkedIn</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Séparateur */}
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-4 bg-white text-gray-500">ou créez un compte avec votre email</span>
+              </div>
+            </div>
+
+            {/* Formulaire simplifié */}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Nom complet */}
               <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">
-                  Informations de l'entreprise
-                </h3>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="companyName" className="block text-sm font-medium text-gray-700 mb-2">
-                      Nom de l'entreprise *
-                    </label>
-                    <div className="relative">
-                      <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        id="companyName"
-                        name="companyName"
-                        type="text"
-                        value={formData.companyName}
-                        onChange={handleChange}
-                        className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="BNP Paribas"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="siret" className="block text-sm font-medium text-gray-700 mb-2">
-                      Numéro de SIRET *
-                    </label>
-                    <div className="relative">
-                      <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        id="siret"
-                        name="siret"
-                        type="text"
-                        value={formData.siret}
-                        onChange={handleChange}
-                        className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="12345678901234"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="sector" className="block text-sm font-medium text-gray-700 mb-2">
-                        Secteur d'activité *
-                      </label>
-                      <div className="relative">
-                        <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                          id="sector"
-                          name="sector"
-                          type="text"
-                          value={formData.sector}
-                          onChange={handleChange}
-                          className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          placeholder="Banque d'investissement"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="size" className="block text-sm font-medium text-gray-700 mb-2">
-                        Taille de l'entreprise *
-                      </label>
-                      <div className="relative">
-                        <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <select
-                          id="size"
-                          name="size"
-                          value={formData.size}
-                          onChange={handleChange}
-                          className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
-                          required
-                        >
-                          <option value="1-50">1-50 employés</option>
-                          <option value="50-250">50-250 employés</option>
-                          <option value="250-1000">250-1000 employés</option>
-                          <option value="1000-5000">1000-5000 employés</option>
-                          <option value="5000-10000">5000-10000 employés</option>
-                          <option value="10000+">10000+ employés</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
+                <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-2">
+                  Nom et prénom *
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    id="fullName"
+                    name="fullName"
+                    type="text"
+                    value={formData.fullName}
+                    onChange={handleChange}
+                    className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Marie Dupont"
+                    required
+                  />
                 </div>
               </div>
 
-              {/* Sélection des rôles */}
+              {/* Rôle dans l'entreprise */}
               <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">
-                  Vos rôles dans l'entreprise *
-                </h3>
-                <p className="text-sm text-slate-600 mb-4">
-                  Sélectionnez un ou plusieurs rôles (combinables)
+                <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">
+                  Votre rôle dans l'entreprise *
+                </label>
+                <div className="relative">
+                  <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <select
+                    id="role"
+                    name="role"
+                    value={formData.role}
+                    onChange={handleChange}
+                    className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
+                    required
+                  >
+                    <option value="rh">RH / Recruteur</option>
+                    <option value="manager">Manager / Responsable d'équipe</option>
+                    <option value="company">Direction / Administration</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Email professionnel */}
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                  Email professionnel *
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="marie.dupont@entreprise.com"
+                    required
+                  />
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Utilisez votre email professionnel pour être automatiquement rattaché à votre entreprise
                 </p>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => handleRoleToggle('company')}
-                    className={`
-                      p-4 rounded-lg border-2 transition-all text-left
-                      ${formData.roles.includes('company')
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-slate-300 hover:border-slate-400'
-                      }
-                    `}
-                  >
-                    <div className="flex items-start gap-3">
-                      <CheckSquare
-                        className={`w-5 h-5 flex-shrink-0 ${
-                          formData.roles.includes('company') ? 'text-blue-500' : 'text-slate-400'
-                        }`}
-                      />
-                      <div>
-                        <p className="font-medium text-slate-900">Entreprise</p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          Gestion globale et publication d'offres
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleRoleToggle('rh')}
-                    className={`
-                      p-4 rounded-lg border-2 transition-all text-left
-                      ${formData.roles.includes('rh')
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-slate-300 hover:border-slate-400'
-                      }
-                    `}
-                  >
-                    <div className="flex items-start gap-3">
-                      <CheckSquare
-                        className={`w-5 h-5 flex-shrink-0 ${
-                          formData.roles.includes('rh') ? 'text-blue-500' : 'text-slate-400'
-                        }`}
-                      />
-                      <div>
-                        <p className="font-medium text-slate-900">RH</p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          Gestion des candidatures et recrutement
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleRoleToggle('manager')}
-                    className={`
-                      p-4 rounded-lg border-2 transition-all text-left
-                      ${formData.roles.includes('manager')
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-slate-300 hover:border-slate-400'
-                      }
-                    `}
-                  >
-                    <div className="flex items-start gap-3">
-                      <CheckSquare
-                        className={`w-5 h-5 flex-shrink-0 ${
-                          formData.roles.includes('manager') ? 'text-blue-500' : 'text-slate-400'
-                        }`}
-                      />
-                      <div>
-                        <p className="font-medium text-slate-900">Manager</p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          Supervision et validation des candidatures
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                </div>
-
-                {formData.roles.length > 1 && (
-                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-sm text-blue-700">
-                      <strong>Rôles sélectionnés :</strong> {formData.roles.map(r => 
-                        r === 'company' ? 'Entreprise' : r === 'rh' ? 'RH' : 'Manager'
-                      ).join(', ')}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Contact principal */}
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">
-                  Interlocuteur principal
-                </h3>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="contactName" className="block text-sm font-medium text-gray-700 mb-2">
-                      Nom et prénom *
-                    </label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        id="contactName"
-                        name="contactName"
-                        type="text"
-                        value={formData.contactName}
-                        onChange={handleChange}
-                        className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="Marie Dupont"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="contactEmail" className="block text-sm font-medium text-gray-700 mb-2">
-                        Email professionnel *
-                      </label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                          id="contactEmail"
-                          name="contactEmail"
-                          type="email"
-                          value={formData.contactEmail}
-                          onChange={handleChange}
-                          className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          placeholder="marie.dupont@entreprise.com"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="contactPhone" className="block text-sm font-medium text-gray-700 mb-2">
-                        Téléphone *
-                      </label>
-                      <div className="relative">
-                        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                          id="contactPhone"
-                          name="contactPhone"
-                          type="tel"
-                          value={formData.contactPhone}
-                          onChange={handleChange}
-                          className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          placeholder="+33 1 23 45 67 89"
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
 
               {/* Mot de passe */}
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">
-                  Sécurité
-                </h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                      Mot de passe *
-                    </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        id="password"
-                        name="password"
-                        type="password"
-                        value={formData.password}
-                        onChange={handleChange}
-                        className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="••••••••"
-                        required
-                      />
-                    </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                    Mot de passe *
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      value={formData.password}
+                      onChange={handleChange}
+                      className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="••••••••"
+                      required
+                    />
                   </div>
+                </div>
 
-                  <div>
-                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                      Confirmer le mot de passe *
-                    </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        type="password"
-                        value={formData.confirmPassword}
-                        onChange={handleChange}
-                        className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="••••••••"
-                        required
-                      />
-                    </div>
+                <div>
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+                    Confirmer *
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type="password"
+                      value={formData.confirmPassword}
+                      onChange={handleChange}
+                      className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Note sur le processus */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium">Après validation de votre email :</p>
+                    <ul className="mt-1 space-y-1 text-blue-700">
+                      <li>• Si votre entreprise existe déjà, vous pourrez la rejoindre</li>
+                      <li>• Sinon, vous pourrez créer la fiche entreprise</li>
+                    </ul>
                   </div>
                 </div>
               </div>
@@ -487,7 +368,7 @@ export default function RegisterCompanyPage() {
                 <label htmlFor="terms" className="ml-2 text-sm text-gray-600">
                   J'accepte les{' '}
                   <Link href="/legal/cgu" className="text-purple-600 hover:text-purple-700">
-                    conditions générales d'utilisation
+                    CGU
                   </Link>{' '}
                   et la{' '}
                   <Link href="/legal/privacy" className="text-purple-600 hover:text-purple-700">

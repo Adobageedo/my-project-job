@@ -33,6 +33,7 @@ export interface DBApplication {
   job_offer_id: string;
   company_id: string;
   cover_letter: string | null;
+  cover_letter_file_url: string | null;
   custom_answers: Record<string, unknown>;
   cv_snapshot_url: string | null;
   status: ApplicationStatus;
@@ -62,6 +63,7 @@ export interface FrontendApplication {
   applicationDate: string;
   status: ApplicationStatus;
   coverLetter: string | null;
+  coverLetterFileUrl: string | null;
   cvUrl: string | null;
   // Offer details (mapped to frontend format)
   offer: {
@@ -124,6 +126,7 @@ function mapApplicationToFrontend(dbApp: DBApplication): FrontendApplication {
     applicationDate: dbApp.created_at,
     status: dbApp.status,
     coverLetter: dbApp.cover_letter,
+    coverLetterFileUrl: dbApp.cover_letter_file_url || null,
     cvUrl: dbApp.cv_snapshot_url,
     offer: {
       id: offer?.id || dbApp.job_offer_id,
@@ -249,6 +252,7 @@ export async function getApplicationById(
 
 /**
  * Withdraw (delete) an application
+ * Supprime physiquement la candidature pour permettre de re-candidater
  * Only pending applications can be withdrawn
  */
 export async function withdrawApplication(
@@ -275,10 +279,10 @@ export async function withdrawApplication(
     return { success: false, error: 'Seules les candidatures en attente peuvent être retirées' };
   }
 
-  // Update status to withdrawn
+  // Supprimer physiquement la candidature pour permettre de re-candidater
   const { error } = await supabase
     .from('applications')
-    .update({ status: 'withdrawn', status_updated_at: new Date().toISOString() })
+    .delete()
     .eq('id', applicationId)
     .eq('candidate_id', candidateId);
 

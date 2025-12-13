@@ -61,7 +61,7 @@ export interface JobOffer {
   manager_email: string | null;
   
   // Status
-  status: 'draft' | 'active' | 'paused' | 'expired' | 'filled' | 'cancelled';
+  status: 'draft' | 'active' | 'paused' | 'expired' | 'filled' | 'cancelled' | 'pending_validation';
   is_featured: boolean;
   is_urgent: boolean;
   
@@ -136,7 +136,7 @@ export interface JobOfferCreateData {
   application_url?: string;
   requires_cover_letter?: boolean;
   custom_questions?: Array<{ id: string; question: string; required: boolean }>;
-  status?: 'draft' | 'active';
+  status?: 'draft' | 'active' | 'pending_validation';
   is_featured?: boolean;
   is_urgent?: boolean;
   expires_at?: string;
@@ -537,12 +537,35 @@ export async function getCompanyOffers(
 
 /**
  * Create job offer
+ * Si l'entreprise n'est pas validée (status !== 'active'), l'offre passe en 'pending_validation'
  */
 export async function createOffer(
   companyId: string,
   offerData: JobOfferCreateData
-): Promise<{ success: boolean; offer?: JobOffer; error?: string }> {
+): Promise<{ success: boolean; offer?: JobOffer; error?: string; pendingValidation?: boolean }> {
   const { data: { user } } = await supabase.auth.getUser();
+
+  // Vérifier le statut de l'entreprise
+  const { data: company } = await supabase
+    .from('companies')
+    .select('status')
+    .eq('id', companyId)
+    .single();
+
+  const isCompanyActive = company?.status === 'active';
+  
+  // Déterminer le statut final de l'offre
+  let finalStatus = offerData.status;
+  let pendingValidation = false;
+
+  if (!isCompanyActive) {
+    // Entreprise non validée : toute tentative de publication -> pending_validation
+    if (offerData.status === 'active') {
+      finalStatus = 'pending_validation';
+      pendingValidation = true;
+    }
+    // Si c'est un brouillon, on garde 'draft'
+  }
 
   const { data, error } = await supabase
     .from('job_offers')
@@ -550,7 +573,8 @@ export async function createOffer(
       company_id: companyId,
       created_by: user?.id,
       ...offerData,
-      published_at: offerData.status === 'active' ? new Date().toISOString() : null
+      status: finalStatus,
+      published_at: finalStatus === 'active' ? new Date().toISOString() : null
     })
     .select()
     .single();
@@ -560,7 +584,7 @@ export async function createOffer(
     return { success: false, error: error.message };
   }
 
-  return { success: true, offer: data as JobOffer };
+  return { success: true, offer: data as JobOffer, pendingValidation };
 }
 
 /**
@@ -598,8 +622,34 @@ export async function updateOffer(
 
 /**
  * Publish offer
+ * Vérifie que l'entreprise est validée avant de publier
  */
-export async function publishOffer(offerId: string): Promise<{ success: boolean; error?: string }> {
+export async function publishOffer(offerId: string): Promise<{ success: boolean; error?: string; pendingValidation?: boolean }> {
+  // Récupérer l'offre et vérifier le statut de l'entreprise
+  const { data: offer } = await supabase
+    .from('job_offers')
+    .select('company_id')
+    .eq('id', offerId)
+    .single();
+
+  if (!offer) {
+    return { success: false, error: 'Offre non trouvée' };
+  }
+
+  const { data: company } = await supabase
+    .from('companies')
+    .select('status')
+    .eq('id', offer.company_id)
+    .single();
+
+  if (company?.status !== 'active') {
+    return { 
+      success: false, 
+      error: 'Votre entreprise est en attente de validation. Vos offres seront publiées automatiquement après approbation.',
+      pendingValidation: true 
+    };
+  }
+
   return updateOffer(offerId, { status: 'active' });
 }
 
@@ -788,6 +838,7 @@ export interface OfferApplication {
   candidate_id: string;
   status: 'pending' | 'in_progress' | 'interview' | 'rejected' | 'accepted' | 'withdrawn';
   cover_letter: string | null;
+  cover_letter_file_url: string | null;
   cv_url: string | null;
   answers: Record<string, unknown> | null;
   notes: string | null;
@@ -1047,3 +1098,102 @@ export async function getRecentOffersForHomepage(limit: number = 5): Promise<{
  * Parse job offer PDF (alias for parseOfferFromPdf)
  */
 export const parseJobOfferPDF = parseOfferFromPdf;
+
+// =====================================================
+// OFFER MANAGERS
+// =====================================================
+
+export interface OfferManager {
+  id: string;
+  user_id: string;
+  offer_id: string;
+  permissions: {
+    can_view_applications: boolean;
+    can_change_status: boolean;
+    can_add_notes: boolean;
+    can_send_emails: boolean;
+  };
+  user: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string;
+    avatar_url: string | null;
+  };
+  created_at: string;
+}
+
+/**
+ * Get managers assigned to an offer
+ */
+export async function getOfferManagers(offerId: string): Promise<OfferManager[]> {
+  const { data, error } = await supabase
+    .from('offer_managers')
+    .select(`
+      id,
+      user_id,
+      offer_id,
+      permissions,
+      created_at,
+      user:users!offer_managers_user_id_fkey(
+        id, first_name, last_name, email, avatar_url
+      )
+    `)
+    .eq('offer_id', offerId);
+
+  if (error) {
+    console.error('Error fetching offer managers:', error);
+    return [];
+  }
+
+  // Map the data to handle the user relation properly
+  return (data || []).map(item => ({
+    ...item,
+    user: Array.isArray(item.user) ? item.user[0] : item.user
+  })) as unknown as OfferManager[];
+}
+
+/**
+ * Add a manager to an offer
+ */
+export async function addOfferManager(
+  offerId: string,
+  userId: string,
+  permissions: OfferManager['permissions']
+): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase
+    .from('offer_managers')
+    .insert({
+      offer_id: offerId,
+      user_id: userId,
+      permissions,
+    });
+
+  if (error) {
+    console.error('Error adding offer manager:', error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+/**
+ * Remove a manager from an offer
+ */
+export async function removeOfferManager(
+  offerId: string,
+  userId: string
+): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase
+    .from('offer_managers')
+    .delete()
+    .eq('offer_id', offerId)
+    .eq('user_id', userId);
+
+  if (error) {
+    console.error('Error removing offer manager:', error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}

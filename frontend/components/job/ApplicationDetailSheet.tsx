@@ -31,6 +31,7 @@ interface ApplicationDetailData {
   applicationDate: string;
   status: string;
   coverLetter?: string | null;
+  coverLetterFileUrl?: string | null;
   cvUrl?: string | null;
   offer: {
     id?: string;
@@ -342,7 +343,7 @@ export function ApplicationDetailSheet({
                   )}
 
                   {/* Lettre de motivation */}
-                  {application.coverLetter ? (
+                  {(application.coverLetter || application.coverLetterFileUrl) ? (
                     <div className="p-3 bg-white rounded-lg border border-gray-200">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="p-2 bg-purple-100 rounded-lg">
@@ -350,14 +351,62 @@ export function ApplicationDetailSheet({
                         </div>
                         <div>
                           <p className="font-medium text-gray-900">Lettre de motivation</p>
-                          <p className="text-sm text-gray-500">Message personnalisé</p>
+                          <p className="text-sm text-gray-500">
+                            {application.coverLetter && application.coverLetterFileUrl
+                              ? 'Texte + Pièce jointe'
+                              : application.coverLetterFileUrl
+                              ? 'Pièce jointe'
+                              : 'Message personnalisé'}
+                          </p>
                         </div>
                       </div>
-                      <div className="mt-3 p-4 bg-gray-50 rounded-lg border-l-4 border-purple-400">
-                        <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">
-                          {application.coverLetter}
-                        </p>
-                      </div>
+
+                      {/* Fichier joint */}
+                      {application.coverLetterFileUrl && (
+                        <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200 mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-purple-100 rounded-lg">
+                              <FileText className="h-5 w-5 text-purple-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">Lettre de motivation</p>
+                              <p className="text-sm text-gray-500">
+                                {application.coverLetterFileUrl.includes('.pdf') ? 'Document PDF' :
+                                 application.coverLetterFileUrl.includes('.doc') ? 'Document Word' :
+                                 'Pièce jointe'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={application.coverLetterFileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-100 rounded-lg transition"
+                            >
+                              <Eye className="h-4 w-4" />
+                              Voir
+                            </a>
+                            <a
+                              href={application.coverLetterFileUrl}
+                              download
+                              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                            >
+                              <Download className="h-4 w-4" />
+                              Télécharger
+                            </a>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Texte de la lettre */}
+                      {application.coverLetter && (
+                        <div className="p-4 bg-gray-50 rounded-lg border-l-4 border-purple-400">
+                          <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">
+                            {application.coverLetter}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200 text-gray-500">

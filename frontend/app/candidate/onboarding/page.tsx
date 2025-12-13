@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import NavBar from '@/components/layout/NavBar';
-import Footer from '@/components/layout/Footer';
 import CVUpload from '@/components/cv/CVUpload';
 import { LocationAutocomplete } from '@/components/shared/LocationAutocomplete';
 import { LocationHierarchy, formatLocationHierarchy } from '@/data/locations';
@@ -15,8 +15,9 @@ import {
 import { CVParseResult } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { completeOnboarding, uploadCV } from '@/services/candidateService';
+import { logout } from '@/services/authService';
 
-export default function CandidateOnboarding() {
+function CandidateOnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, refreshCandidate } = useAuth();
@@ -27,6 +28,13 @@ export default function CandidateOnboarding() {
   const [currentStep, setCurrentStep] = useState(1);
   const [uploadedCV, setUploadedCV] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Déconnexion
+  const handleLogout = async () => {
+    console.log('[CandidateOnboarding] Logging out...');
+    await logout();
+    router.push('/login');
+  };
   
   const [formData, setFormData] = useState({
     firstName: '',
@@ -231,8 +239,9 @@ export default function CandidateOnboarding() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <NavBar />
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50">
+      {/* NavBar en mode minimal */}
+      <NavBar minimal onLogout={handleLogout} />
 
       <div className="flex-1 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl mx-auto">
@@ -812,7 +821,25 @@ export default function CandidateOnboarding() {
         </div>
       </div>
 
-      <Footer />
+      {/* Footer minimaliste */}
+      <footer className="py-4 text-center text-sm text-gray-500">
+        © {new Date().getFullYear()} JobTeaser • 
+        <Link href="/mentions-legales" className="hover:underline">Mentions légales</Link>
+        {' • '}
+        <Link href="/contact" className="hover:underline">Contact</Link>
+      </footer>
     </div>
+  );
+}
+
+export default function CandidateOnboarding() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center">
+        <Loader2 className="h-12 w-12 text-blue-600 animate-spin" />
+      </div>
+    }>
+      <CandidateOnboardingContent />
+    </Suspense>
   );
 }

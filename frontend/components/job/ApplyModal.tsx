@@ -13,11 +13,13 @@ import {
   Building2,
   MapPin,
   Calendar,
+  Paperclip,
+  Trash2,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { SavedCV } from '@/types';
 import { CVSelector } from '../cv/CVManager';
-import { uploadCV, createApplication } from '@/services/candidateService';
+import { uploadCV, createApplication, uploadCoverLetterFile } from '@/services/candidateService';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -63,6 +65,7 @@ export function ApplyModal({
   const [step, setStep] = useState<Step>(savedCVs.length > 0 ? 'select-cv' : 'add-cv');
   const [selectedCVId, setSelectedCVId] = useState<string | undefined>(defaultCVId);
   const [coverLetter, setCoverLetter] = useState('');
+  const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -136,9 +139,9 @@ export function ApplyModal({
       return;
     }
 
-    // Vérifier si la lettre de motivation est obligatoire
-    if (offer.requiresCoverLetter && !coverLetter?.trim()) {
-      setError('La lettre de motivation est obligatoire pour cette offre');
+    // Vérifier si la lettre de motivation est obligatoire (texte OU fichier)
+    if (offer.requiresCoverLetter && !coverLetter?.trim() && !coverLetterFile) {
+      setError('La lettre de motivation est obligatoire pour cette offre (texte ou fichier)');
       return;
     }
 
@@ -156,12 +159,24 @@ export function ApplyModal({
       const selectedCV = savedCVs.find(cv => cv.id === selectedCVId);
       const cvUrl = selectedCV?.url;
 
+      // Upload cover letter file if provided
+      let coverLetterFileUrl: string | undefined;
+      if (coverLetterFile) {
+        const uploadResult = await uploadCoverLetterFile(candidateId, offer.id, coverLetterFile);
+        if (!uploadResult.success) {
+          throw new Error(uploadResult.error || 'Erreur lors de l\'upload de la lettre de motivation');
+        }
+        coverLetterFileUrl = uploadResult.url;
+      }
+
       const result = await createApplication(
         candidateId,
         offer.id,
         companyId,
         coverLetter || undefined,
-        cvUrl
+        cvUrl,
+        undefined, // customAnswers
+        coverLetterFileUrl
       );
 
       if (!result.success) {
@@ -365,8 +380,8 @@ export function ApplyModal({
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">
                   {offer.requiresCoverLetter 
-                    ? 'Cette offre requiert une lettre de motivation pour postuler'
-                    : 'Personnalisez votre candidature avec un message pour le recruteur'
+                    ? 'Cette offre requiert une lettre de motivation (texte ou fichier)'
+                    : 'Personnalisez votre candidature avec un message ou un fichier'
                   }
                 </p>
 
@@ -379,20 +394,110 @@ export function ApplyModal({
                   </div>
                 )}
 
+                {/* Upload de fichier pour lettre de motivation */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <Paperclip className="inline h-4 w-4 mr-1" />
+                    Joindre un fichier (optionnel)
+                  </label>
+                  
+                  {!coverLetterFile ? (
+                    <label className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition">
+                      <Upload className="h-5 w-5 text-gray-400" />
+                      <span className="text-gray-600 text-sm">Cliquez pour ajouter un fichier</span>
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 5 * 1024 * 1024) {
+                              setError('Le fichier ne doit pas dépasser 5 MB');
+                              return;
+                            }
+                            setCoverLetterFile(file);
+                            setError(null);
+                          }
+                        }}
+                      />
+                    </label>
+                  ) : (
+                    <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                      <FileText className="h-6 w-6 text-blue-600" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 truncate">{coverLetterFile.name}</p>
+                        <p className="text-sm text-gray-500">
+                          {(coverLetterFile.size / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setCoverLetterFile(null)}
+                        className="p-2 hover:bg-blue-100 rounded-lg transition text-gray-500 hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1">
+                    Formats acceptés : PDF, DOC, DOCX, PNG, JPG (max 5 MB)
+                  </p>
+                </div>
+
+                {/* Séparateur */}
+                <div className="relative my-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-200"></div>
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white text-gray-500">et/ou</span>
+                  </div>
+                </div>
+
+                {/* Zone de texte */}
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Message au recruteur (optionnel)
+                </label>
                 <textarea
                   value={coverLetter}
                   onChange={e => setCoverLetter(e.target.value)}
                   placeholder="Bonjour,&#10;&#10;Je suis très intéressé(e) par cette opportunité...&#10;&#10;Cordialement,"
                   className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${
-                    offer.requiresCoverLetter && !coverLetter?.trim() 
+                    offer.requiresCoverLetter && !coverLetter?.trim() && !coverLetterFile
                       ? 'border-amber-300 bg-amber-50' 
                       : 'border-gray-300'
                   }`}
-                  rows={8}
+                  rows={6}
                 />
                 <p className="text-sm text-gray-400 mt-2">
                   {coverLetter.length} / 2000 caractères
                 </p>
+
+                {/* Indicateur de validation */}
+                {offer.requiresCoverLetter && (
+                  <div className={`mt-3 p-3 rounded-lg text-sm ${
+                    coverLetter?.trim() || coverLetterFile 
+                      ? 'bg-green-50 text-green-700' 
+                      : 'bg-amber-50 text-amber-700'
+                  }`}>
+                    {coverLetter?.trim() || coverLetterFile ? (
+                      <span className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        {coverLetterFile && coverLetter?.trim() 
+                          ? 'Fichier et message ajoutés'
+                          : coverLetterFile 
+                            ? 'Fichier ajouté' 
+                            : 'Message ajouté'
+                        }
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4" />
+                        Veuillez ajouter un fichier ou un message
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -428,7 +533,14 @@ export function ApplyModal({
                 <div className="flex justify-between">
                   <span className="text-gray-600">Lettre de motivation</span>
                   <span className="font-medium">
-                    {coverLetter ? 'Oui' : 'Non'}
+                    {coverLetterFile && coverLetter?.trim() 
+                      ? 'Fichier + texte'
+                      : coverLetterFile 
+                        ? 'Fichier joint' 
+                        : coverLetter?.trim() 
+                          ? 'Texte' 
+                          : 'Non'
+                    }
                   </span>
                 </div>
               </div>

@@ -12,6 +12,7 @@ export interface Company {
   size: string | null;
   description: string | null;
   website: string | null;
+  linkedin_url: string | null;
   logo_url: string | null;
   
   // Contact
@@ -63,6 +64,7 @@ export interface Application {
   job_offer_id: string;
   company_id: string;
   cover_letter: string | null;
+  cover_letter_file_url: string | null;
   cv_snapshot_url: string | null;
   status: 'pending' | 'in_progress' | 'interview' | 'rejected' | 'accepted' | 'withdrawn';
   status_updated_at: string;

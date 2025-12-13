@@ -171,6 +171,59 @@ export class EmailService {
   }
 
   /**
+   * Envoyer un email avec HTML brut (sans template)
+   */
+  async sendRawEmail(params: {
+    to: string;
+    subject: string;
+    html: string;
+    from?: string;
+  }): Promise<{ id: string }> {
+    if (!this.resend) {
+      throw new Error('Email service not configured');
+    }
+
+    const { to, subject, html, from } = params;
+
+    this.logger.log(`Sending raw email to ${to}: ${subject}`);
+
+    try {
+      const result = await this.resend.emails.send({
+        from: from || `${this.fromName} <${this.fromEmail}>`,
+        to,
+        subject,
+        html,
+      });
+
+      const messageId = (result as any).id || (result.data as any)?.id || 'unknown';
+
+      // Logger dans Supabase
+      await this.logEmail({
+        recipient: to,
+        subject,
+        templateName: 'raw-email',
+        status: 'sent',
+        resendMessageId: messageId,
+      });
+
+      return { id: messageId };
+    } catch (error: any) {
+      this.logger.error(`Failed to send raw email: ${error.message}`, error);
+
+      // Logger l'erreur
+      await this.logEmail({
+        recipient: to,
+        subject,
+        templateName: 'raw-email',
+        status: 'failed',
+        errorMessage: error.message,
+      });
+
+      throw error;
+    }
+  }
+
+  /**
    * Logger un email dans Supabase
    */
   private async logEmail(params: {

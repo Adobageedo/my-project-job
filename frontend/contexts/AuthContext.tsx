@@ -19,8 +19,17 @@ interface AuthUser {
   id: string;
   email: string;
   role: UserRole;
+  first_name?: string;
+  last_name?: string;
   onboarding_completed?: boolean;
   profile_completed?: boolean;
+  company_id?: string;
+}
+
+interface CompanyInfo {
+  id: string;
+  name: string;
+  logo_url: string | null;
 }
 
 interface AuthContextValue {
@@ -46,6 +55,10 @@ interface AuthContextValue {
   updateCandidate: (updates: Partial<Candidate>) => Promise<void>;
   refreshCandidate: () => Promise<void>;
   clearCandidate: () => void;
+
+  // Company state (only populated for company role)
+  company: CompanyInfo | null;
+  refreshCompany: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -71,6 +84,12 @@ const PUBLIC_ROUTES = [
   '/candidate/offers',
 ];
 
+// Routes d'onboarding (accessibles même si onboarding non complété)
+const ONBOARDING_ROUTES: Record<string, string> = {
+  candidate: '/candidate/onboarding',
+  company: '/company/onboarding',
+};
+
 // Routes par rôle
 const ROLE_ROUTES: Record<string, string[]> = {
   candidate: [
@@ -94,6 +113,8 @@ const ROLE_ROUTES: Record<string, string[]> = {
     '/company/offers',
     '/company/applications',
     '/company/gdpr',
+    '/company/onboarding',
+    '/company/team',
     '/settings',
   ],
   admin: [
@@ -104,6 +125,10 @@ const ROLE_ROUTES: Record<string, string[]> = {
     '/admin/offers',
     '/admin/gdpr',
     '/admin/audit-logs',
+    '/admin/homepage',
+    '/admin/pending-offers',
+    '/admin/pending-companies',
+    '/admin/notifications',
     '/admin/recruitcrm-sync',
     '/administrateur',
     '/settings',
@@ -136,6 +161,38 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
   const [isCandidateLoading, setIsCandidateLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [candidateError, setCandidateError] = useState<string | null>(null);
+
+  // Company state
+  const [company, setCompany] = useState<CompanyInfo | null>(null);
+
+  // =====================================================
+  // COMPANY FUNCTIONS
+  // =====================================================
+
+  const loadCompany = useCallback(async (companyId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('id, name, logo_url')
+        .eq('id', companyId)
+        .single();
+
+      if (error) {
+        console.error('[AuthContext] loadCompany error:', error);
+        return;
+      }
+
+      setCompany(data as CompanyInfo);
+    } catch (error) {
+      console.error('[AuthContext] loadCompany error:', error);
+    }
+  }, []);
+
+  const refreshCompany = useCallback(async () => {
+    if (user?.company_id) {
+      await loadCompany(user.company_id);
+    }
+  }, [user?.company_id, loadCompany]);
 
   // =====================================================
   // CANDIDATE FUNCTIONS
@@ -277,8 +334,11 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         id: authUser.id,
         email: authUser.email,
         role: authUser.role as UserRole,
+        first_name: authUser.first_name,
+        last_name: authUser.last_name,
         onboarding_completed: authUser.onboarding_completed,
         profile_completed: authUser.profile_completed,
+        company_id: authUser.company_id,
       };
 
       console.log('[AuthContext] login contextUser', { contextUser });
@@ -289,6 +349,12 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       if (authUser.role === 'candidate') {
         console.log('[AuthContext] login loading candidate...');
         await loadCandidate(authUser.id);
+      }
+
+      // Load company data if role is company
+      if (authUser.role === 'company' && authUser.company_id) {
+        console.log('[AuthContext] login loading company...');
+        await loadCompany(authUser.company_id);
       }
 
       console.log('[AuthContext] login SUCCESS');
@@ -304,6 +370,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       await authLogout();
       localStorage.removeItem(AUTH_STORAGE_KEY);
       clearCandidate();
+      setCompany(null);
       setUser(null);
       setIsRedirecting(false);
       router.push('/');
@@ -436,9 +503,45 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       const isPublicRoute = PUBLIC_ROUTES.some(route =>
         pathname === route || pathname.startsWith(route + '/')
       );
+      const isInviteRoute = pathname.startsWith('/invite/');
+
+      // Helper: check if current path is an onboarding route for user's role
+      const isOnboardingRoute = (role: string | null) => {
+        if (!role) return false;
+        const onboardingPath = ONBOARDING_ROUTES[role];
+        return onboardingPath && (pathname === onboardingPath || pathname.startsWith(onboardingPath + '/'));
+      };
+
+      // Helper: check if user needs onboarding
+      const needsOnboarding = (role: string | null): boolean => {
+        if (!role) return false;
+        
+        // Admin never needs onboarding
+        if (role === 'admin') return false;
+        
+        // Candidate: needs onboarding if no firstName
+        if (role === 'candidate') {
+          // Wait for candidate data to load before deciding
+          if (isCandidateLoading) return false;
+          return !candidate?.firstName;
+        }
+        
+        // Company: needs onboarding if onboarding_completed is false
+        if (role === 'company') {
+          return user?.onboarding_completed === false;
+        }
+        
+        return false;
+      };
 
       // Dynamic offer routes are public
       if (pathname.startsWith('/candidate/offers/')) {
+        setIsRedirecting(false);
+        return;
+      }
+
+      // Invite routes are special - allow access
+      if (isInviteRoute) {
         setIsRedirecting(false);
         return;
       }
@@ -455,38 +558,32 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Si l'utilisateur est connecté et sur une page de login → rediriger vers returnUrl ou dashboard
+      // Si l'utilisateur est connecté et sur une page de login → rediriger
       if (user && isLoginRoute) {
-        // Lire le returnUrl depuis les paramètres de l'URL
         const returnUrlParam = searchParams?.get('returnUrl');
         const targetUrl = returnUrlParam ? decodeURIComponent(returnUrlParam) : null;
         const dashboard = ROLE_DASHBOARDS[user.role || 'candidate'];
         
-        console.log('[AuthContext] User logged in on login page', { targetUrl, dashboard, role: user.role });
         setIsRedirecting(true);
         
-        // Pour les candidats, vérifier l'onboarding d'abord
-        if (user.role === 'candidate') {
-          const needsOnboarding = !candidate?.firstName && !isCandidateLoading;
-          if (needsOnboarding) {
-            // Préserver le returnUrl pour après l'onboarding
-            const onboardingUrl = targetUrl 
-              ? `/candidate/onboarding?returnUrl=${encodeURIComponent(targetUrl)}`
-              : '/candidate/onboarding';
-            router.replace(onboardingUrl);
+        // Check onboarding first
+        if (needsOnboarding(user.role)) {
+          const onboardingUrl = ONBOARDING_ROUTES[user.role || 'candidate'];
+          if (onboardingUrl) {
+            const url = targetUrl 
+              ? `${onboardingUrl}?returnUrl=${encodeURIComponent(targetUrl)}`
+              : onboardingUrl;
+            router.replace(url);
             return;
           }
         }
         
-        // Rediriger vers l'URL demandée ou le dashboard par défaut
-        // Vérifier que l'URL est valide pour le rôle de l'utilisateur
+        // Redirect to target URL if valid for user's role
         if (targetUrl) {
           const userRoutes = ROLE_ROUTES[user.role || 'candidate'] || [];
           const canAccessTarget = userRoutes.some(route => 
             targetUrl === route || targetUrl.startsWith(route + '/')
           );
-          
-          console.log('[AuthContext] Checking target access', { targetUrl, canAccessTarget, userRoutes });
           
           if (canAccessTarget) {
             router.replace(targetUrl);
@@ -500,6 +597,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
       if (isPublicRoute) return;
 
+      // Not logged in → redirect to login
       if (!user) {
         setIsRedirecting(true);
         const returnUrl = encodeURIComponent(pathname);
@@ -513,17 +611,24 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (user.role === 'candidate') {
-        const needsOnboarding = !candidate?.firstName;
-        const isOnboardingRoute = pathname === '/candidate/onboarding' || pathname.startsWith('/candidate/onboarding/');
-
-        if (needsOnboarding && !isOnboardingRoute && !isCandidateLoading) {
+      // User is logged in - check onboarding
+      if (user.role && needsOnboarding(user.role)) {
+        // Already on onboarding page → allow
+        if (isOnboardingRoute(user.role)) {
+          setIsRedirecting(false);
+          return;
+        }
+        
+        // Redirect to onboarding
+        const onboardingUrl = ONBOARDING_ROUTES[user.role];
+        if (onboardingUrl) {
           setIsRedirecting(true);
-          router.replace('/candidate/onboarding');
+          router.replace(onboardingUrl);
           return;
         }
       }
 
+      // Check role-based access
       if (user.role) {
         const allowedRoutes = ROLE_ROUTES[user.role] || [];
         const hasAccess = allowedRoutes.some(route =>
@@ -531,7 +636,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         );
 
         if (!hasAccess) {
-          // Vérifier si c'est un accès cross-role (candidat → company ou vice versa)
+          // Cross-role access attempt
           const isCandidateTryingCompany = user.role === 'candidate' && pathname.startsWith('/company');
           const isCompanyTryingCandidate = user.role === 'company' && pathname.startsWith('/candidate');
           
@@ -542,14 +647,14 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
             return;
           }
           
-          // Sinon rediriger vers le dashboard
+          // Redirect to dashboard
           setIsRedirecting(true);
           const dashboard = ROLE_DASHBOARDS[user.role];
           if (dashboard && pathname !== dashboard) {
             router.replace(dashboard);
           }
         } else {
-          // L'utilisateur a accès à cette page, arrêter le loading
+          // User has access
           setIsRedirecting(false);
         }
       }
@@ -607,6 +712,9 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
         updateCandidate,
         refreshCandidate,
         clearCandidate,
+        // Company
+        company,
+        refreshCompany,
       }}
     >
       {/* Overlay de loading par-dessus la page actuelle pendant les redirections */}

@@ -5,7 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import Footer from '@/components/layout/Footer';
 import { getCurrentCompany, updateApplicationStatus } from '@/services/companyService';
-import { getOfferById, getOfferApplications, JobOffer, OfferApplication } from '@/services/offerService';
+import { getOfferById, getOfferApplications, getOfferManagers, JobOffer, OfferApplication, OfferManager } from '@/services/offerService';
+import { getCurrentUser } from '@/services/authService';
+import { InviteManagerModal } from '@/components/company/InviteManagerModal';
 import { 
   ArrowLeft, 
   Loader2, 
@@ -21,6 +23,8 @@ import {
   ChevronRight,
   Info,
   Clock,
+  UserPlus,
+  Shield,
 } from 'lucide-react';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -51,6 +55,13 @@ export default function OfferApplicationsPage() {
   const [selectedApplication, setSelectedApplication] = useState<OfferApplication | null>(null);
   const [draggedApplications, setDraggedApplications] = useState<string[]>([]);
   const [dragOverColumn, setDragOverColumn] = useState<ApplicationStatus | null>(null);
+  
+  // Managers state
+  const [managers, setManagers] = useState<OfferManager[]>([]);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [hoveredManagers, setHoveredManagers] = useState(false);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const loadApplications = async () => {
     const { applications: apps } = await getOfferApplications(offerId);
@@ -60,11 +71,16 @@ export default function OfferApplicationsPage() {
   useEffect(() => {
     const init = async () => {
       try {
-        const company = await getCurrentCompany();
+        const [company, user] = await Promise.all([
+          getCurrentCompany(),
+          getCurrentUser()
+        ]);
         if (!company) {
           router.push('/login-company');
           return;
         }
+        setCompanyId(company.id);
+        setCurrentUserId(user?.id || null);
 
         const offerData = await getOfferById(offerId);
         if (!offerData || offerData.company_id !== company.id) {
@@ -73,6 +89,11 @@ export default function OfferApplicationsPage() {
         }
 
         setOffer(offerData);
+        
+        // Load managers
+        const offerManagers = await getOfferManagers(offerId);
+        setManagers(offerManagers);
+        
         await loadApplications();
       } catch (error) {
         console.error('Error loading data:', error);
@@ -249,6 +270,85 @@ export default function OfferApplicationsPage() {
                   <Info className="h-4 w-4" />
                   Détails de l'offre
                 </button>
+
+                {/* Managers indicator */}
+                <div 
+                  className="relative"
+                  onMouseEnter={() => setHoveredManagers(true)}
+                  onMouseLeave={() => setHoveredManagers(false)}
+                >
+                  {managers.length > 0 ? (
+                    <button
+                      onClick={() => setShowInviteModal(true)}
+                      className="px-4 py-2 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 transition flex items-center gap-2"
+                    >
+                      <Shield className="h-4 w-4" />
+                      {managers.length === 1 
+                        ? `${managers[0].user?.first_name || ''} ${managers[0].user?.last_name || ''}`.trim() || 'Manager'
+                        : `${managers.length} personnes`
+                      }
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setShowInviteModal(true)}
+                      className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition flex items-center gap-2"
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      Ajouter manager
+                    </button>
+                  )}
+
+                  {/* Tooltip with managers details */}
+                  {hoveredManagers && managers.length > 0 && (
+                    <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 p-4 z-50">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-semibold text-gray-700">Accès à cette offre</span>
+                        <button
+                          onClick={() => setShowInviteModal(true)}
+                          className="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                        >
+                          + Ajouter
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {managers.map((manager) => (
+                          <div key={manager.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
+                            {manager.user?.avatar_url ? (
+                              <img 
+                                src={manager.user.avatar_url} 
+                                alt="" 
+                                className="h-8 w-8 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 text-sm font-medium">
+                                {manager.user?.first_name?.[0]}{manager.user?.last_name?.[0]}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {manager.user?.first_name} {manager.user?.last_name}
+                              </p>
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {manager.permissions?.can_view_applications && (
+                                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px]">Voir</span>
+                                )}
+                                {manager.permissions?.can_change_status && (
+                                  <span className="px-1.5 py-0.5 bg-green-100 text-green-600 rounded text-[10px]">Statut</span>
+                                )}
+                                {manager.permissions?.can_add_notes && (
+                                  <span className="px-1.5 py-0.5 bg-amber-100 text-amber-600 rounded text-[10px]">Notes</span>
+                                )}
+                                {manager.permissions?.can_send_emails && (
+                                  <span className="px-1.5 py-0.5 bg-pink-100 text-pink-600 rounded text-[10px]">Emails</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -714,11 +814,41 @@ export default function OfferApplicationsPage() {
                           <Eye className="h-4 w-4 text-blue-500 ml-auto" />
                         </a>
                       )}
+                      
+                      {/* Lettre de motivation - Pièce jointe */}
+                      {selectedApplication.cover_letter_file_url && (
+                        <a
+                          href={selectedApplication.cover_letter_file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 p-3 bg-purple-50 rounded-lg hover:bg-purple-100 transition"
+                        >
+                          <FileText className="h-5 w-5 text-purple-600" />
+                          <div className="flex-1">
+                            <span className="text-purple-700 font-medium">Lettre de motivation</span>
+                            <p className="text-xs text-purple-500">
+                              {selectedApplication.cover_letter_file_url.includes('.pdf') ? 'Document PDF' :
+                               selectedApplication.cover_letter_file_url.includes('.doc') ? 'Document Word' :
+                               'Pièce jointe'}
+                            </p>
+                          </div>
+                          <Eye className="h-4 w-4 text-purple-500" />
+                        </a>
+                      )}
+                      
+                      {/* Lettre de motivation - Texte */}
                       {selectedApplication.cover_letter && (
                         <div className="p-3 bg-gray-50 rounded-lg">
-                          <h5 className="text-sm font-medium text-gray-700 mb-2">Lettre de motivation</h5>
+                          <h5 className="text-sm font-medium text-gray-700 mb-2">
+                            {selectedApplication.cover_letter_file_url ? 'Message complémentaire' : 'Lettre de motivation'}
+                          </h5>
                           <p className="text-sm text-gray-600 whitespace-pre-line">{selectedApplication.cover_letter}</p>
                         </div>
+                      )}
+                      
+                      {/* Aucun document */}
+                      {!selectedApplication.cv_url && !selectedApplication.cover_letter && !selectedApplication.cover_letter_file_url && (
+                        <p className="text-sm text-gray-400 italic">Aucun document joint</p>
                       )}
                     </div>
                   </div>
@@ -747,6 +877,21 @@ export default function OfferApplicationsPage() {
           )}
         </div>
       </div>
+
+      {/* Invite Manager Modal */}
+      {companyId && currentUserId && (
+        <InviteManagerModal
+          isOpen={showInviteModal}
+          onClose={() => setShowInviteModal(false)}
+          companyId={companyId}
+          invitedBy={currentUserId}
+          onSuccess={async () => {
+            const updatedManagers = await getOfferManagers(offerId);
+            setManagers(updatedManagers);
+            setShowInviteModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }

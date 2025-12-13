@@ -239,6 +239,7 @@ export async function registerCompany(
       last_name: nameParts.slice(1).join(' ') || null,
       phone: companyData.contactPhone || null,
       is_primary_company_contact: true,
+      is_company_owner: true, // Premier inscrit devient référent/owner
       profile_completed: true,
       onboarding_completed: true,
     });
@@ -317,4 +318,396 @@ export function onAuthStateChange(callback: (user: AuthUser | null) => void) {
       callback(null);
     }
   });
+}
+
+// =====================================================
+// OAUTH / SOCIAL LOGIN
+// =====================================================
+
+export type OAuthProvider = 'google' | 'azure' | 'linkedin_oidc';
+
+/**
+ * Connexion via OAuth (Google, Microsoft Azure, LinkedIn)
+ * Redirige vers le provider et gère le callback
+ */
+export async function signInWithOAuth(
+  provider: OAuthProvider,
+  options?: {
+    redirectTo?: string;
+    scopes?: string;
+    queryParams?: Record<string, string>;
+  }
+): Promise<void> {
+  const redirectTo = options?.redirectTo || `${window.location.origin}/auth/callback`;
+  
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo,
+      scopes: options?.scopes,
+      queryParams: options?.queryParams,
+    },
+  });
+
+  if (error) {
+    console.error('OAuth error:', error);
+    throw new Error(error.message || 'Erreur lors de la connexion');
+  }
+}
+
+/**
+ * Connexion avec Google
+ */
+export async function signInWithGoogle(redirectTo?: string): Promise<void> {
+  return signInWithOAuth('google', {
+    redirectTo,
+    scopes: 'email profile',
+  });
+}
+
+/**
+ * Connexion avec Microsoft (Azure AD / Outlook professionnel)
+ */
+export async function signInWithMicrosoft(redirectTo?: string): Promise<void> {
+  return signInWithOAuth('azure', {
+    redirectTo,
+    scopes: 'email profile openid',
+  });
+}
+
+/**
+ * Connexion avec LinkedIn
+ */
+export async function signInWithLinkedIn(redirectTo?: string): Promise<void> {
+  return signInWithOAuth('linkedin_oidc', {
+    redirectTo,
+    scopes: 'openid profile email',
+  });
+}
+
+/**
+ * Compléter le profil après OAuth pour une entreprise
+ * Appelé quand l'utilisateur s'inscrit via OAuth et doit compléter ses infos entreprise
+ */
+export async function completeCompanyOAuthProfile(
+  userId: string,
+  companyData: {
+    companyName: string;
+    siret?: string;
+    sector?: string;
+    size?: string;
+    contactName?: string;
+    contactPhone?: string;
+    roles?: CompanyRole[];
+  }
+): Promise<{ success: boolean; companyId?: string; error?: string }> {
+  try {
+    // Vérifier si le SIRET existe déjà
+    if (companyData.siret) {
+      const { data: existingCompany } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('siret', companyData.siret)
+        .single();
+
+      if (existingCompany) {
+        return {
+          success: false,
+          error: `Une entreprise avec ce SIRET existe déjà: ${existingCompany.name}`,
+        };
+      }
+    }
+
+    // Créer l'entreprise
+    const { data: newCompany, error: companyError } = await supabase
+      .from('companies')
+      .insert({
+        name: companyData.companyName,
+        siret: companyData.siret || null,
+        sector: companyData.sector || null,
+        size: companyData.size || null,
+        contact_name: companyData.contactName || null,
+        contact_phone: companyData.contactPhone || null,
+        status: 'pending',
+      })
+      .select('id')
+      .single();
+
+    if (companyError) throw companyError;
+
+    // Mettre à jour l'utilisateur avec les infos entreprise
+    const nameParts = companyData.contactName?.split(' ') || [];
+    const { error: userError } = await supabase
+      .from('users')
+      .update({
+        role: 'company',
+        company_roles: companyData.roles || ['company'],
+        company_id: newCompany.id,
+        first_name: nameParts[0] || null,
+        last_name: nameParts.slice(1).join(' ') || null,
+        phone: companyData.contactPhone || null,
+        is_primary_company_contact: true,
+        is_company_owner: true, // Premier inscrit devient owner
+        profile_completed: true,
+        onboarding_completed: false, // Doit compléter l'onboarding
+      })
+      .eq('id', userId);
+
+    if (userError) throw userError;
+
+    return { success: true, companyId: newCompany.id };
+  } catch (error: unknown) {
+    console.error('Complete OAuth profile error:', error);
+    return {
+      success: false,
+      error: (error as Error).message || 'Erreur lors de la création du profil',
+    };
+  }
+}
+
+/**
+ * Vérifier si un SIRET existe déjà
+ */
+export async function checkSiretExists(siret: string): Promise<{
+  exists: boolean;
+  companyName?: string;
+}> {
+  const { data } = await supabase
+    .from('companies')
+    .select('id, name')
+    .eq('siret', siret)
+    .single();
+
+  return {
+    exists: !!data,
+    companyName: data?.name,
+  };
+}
+
+/**
+ * Extraire le domaine d'un email
+ */
+export function extractEmailDomain(email: string): string {
+  const parts = email.split('@');
+  return parts.length > 1 ? parts[1].toLowerCase() : '';
+}
+
+/**
+ * Vérifier si une entreprise existe avec ce domaine email
+ */
+export async function checkCompanyByEmailDomain(email: string): Promise<{
+  exists: boolean;
+  company?: {
+    id: string;
+    name: string;
+    sector: string | null;
+    size: string | null;
+    logo_url: string | null;
+  };
+}> {
+  const domain = extractEmailDomain(email);
+  
+  // Ignorer les domaines génériques
+  const genericDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'orange.fr', 'free.fr', 'sfr.fr', 'laposte.net', 'wanadoo.fr'];
+  if (genericDomains.includes(domain)) {
+    return { exists: false };
+  }
+
+  // Chercher une entreprise avec un contact_email ayant le même domaine
+  const { data } = await supabase
+    .from('companies')
+    .select('id, name, sector, size, logo_url, contact_email')
+    .ilike('contact_email', `%@${domain}`)
+    .limit(1)
+    .single();
+
+  if (data) {
+    return {
+      exists: true,
+      company: {
+        id: data.id,
+        name: data.name,
+        sector: data.sector,
+        size: data.size,
+        logo_url: data.logo_url,
+      },
+    };
+  }
+
+  // Chercher aussi dans les users avec le même domaine
+  const { data: userData } = await supabase
+    .from('users')
+    .select('company_id, companies!inner(id, name, sector, size, logo_url)')
+    .eq('role', 'company')
+    .ilike('email', `%@${domain}`)
+    .limit(1)
+    .single();
+
+  if (userData?.companies) {
+    // Handle both array and object response from Supabase
+    const companyData = Array.isArray(userData.companies) ? userData.companies[0] : userData.companies;
+    if (companyData) {
+      return {
+        exists: true,
+        company: {
+          id: companyData.id,
+          name: companyData.name,
+          sector: companyData.sector,
+          size: companyData.size,
+          logo_url: companyData.logo_url,
+        },
+      };
+    }
+  }
+
+  return { exists: false };
+}
+
+/**
+ * Inscription entreprise simplifiée - Étape 1 (création du compte utilisateur uniquement)
+ * L'entreprise sera créée/rattachée après validation de l'email
+ */
+export async function registerCompanyUser(
+  email: string,
+  password: string,
+  userData: {
+    fullName: string;
+    role: CompanyRole;
+  }
+): Promise<{ success: boolean; userId?: string; error?: string }> {
+  try {
+    // Créer le compte auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { role: 'company', pending_company: true },
+      },
+    });
+
+    if (authError) throw authError;
+    if (!authData.user) throw new Error('Erreur lors de la création du compte');
+
+    // Créer l'entrée dans la table users (sans company_id pour l'instant)
+    const nameParts = userData.fullName.split(' ');
+    const { error: userError } = await supabase.from('users').insert({
+      id: authData.user.id,
+      email: authData.user.email,
+      role: 'company',
+      company_roles: [userData.role],
+      company_id: null, // Sera renseigné après validation email
+      first_name: nameParts[0] || null,
+      last_name: nameParts.slice(1).join(' ') || null,
+      is_primary_company_contact: false,
+      is_company_owner: false,
+      profile_completed: false,
+      onboarding_completed: false,
+    });
+
+    if (userError) throw userError;
+
+    return { success: true, userId: authData.user.id };
+  } catch (error: unknown) {
+    console.error('Register company user error:', error);
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Rattacher un utilisateur à une entreprise existante
+ */
+export async function joinExistingCompany(
+  userId: string,
+  companyId: string,
+  role: CompanyRole = 'manager'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('users')
+      .update({
+        company_id: companyId,
+        company_roles: [role],
+        is_primary_company_contact: false,
+        is_company_owner: false,
+        profile_completed: true,
+        onboarding_completed: true,
+      })
+      .eq('id', userId);
+
+    if (error) throw error;
+
+    return { success: true };
+  } catch (error: unknown) {
+    console.error('Join company error:', error);
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Créer une nouvelle entreprise et rattacher l'utilisateur comme owner
+ */
+export async function createCompanyAndLink(
+  userId: string,
+  companyData: {
+    name: string;
+    siret: string;
+    sector: string;
+    size: string;
+    website?: string;
+    linkedin_url?: string;
+    contact_name?: string;
+    contact_email?: string;
+    contact_phone?: string;
+    description?: string;
+  },
+  userEmail: string
+): Promise<{ success: boolean; companyId?: string; error?: string }> {
+  try {
+    // Vérifier si le SIRET existe déjà
+    const siretCheck = await checkSiretExists(companyData.siret);
+    if (siretCheck.exists) {
+      return { success: false, error: `Ce SIRET est déjà enregistré pour : ${siretCheck.companyName}` };
+    }
+
+    // Créer l'entreprise avec tous les champs
+    const { data: newCompany, error: companyError } = await supabase
+      .from('companies')
+      .insert({
+        name: companyData.name,
+        siret: companyData.siret,
+        sector: companyData.sector,
+        size: companyData.size,
+        website: companyData.website || null,
+        linkedin_url: companyData.linkedin_url || null,
+        contact_name: companyData.contact_name || null,
+        contact_email: companyData.contact_email || userEmail,
+        contact_phone: companyData.contact_phone || null,
+        description: companyData.description || null,
+        status: 'pending',
+      })
+      .select('id')
+      .single();
+
+    if (companyError) throw companyError;
+
+    // Mettre à jour l'utilisateur comme owner
+    const { error: userError } = await supabase
+      .from('users')
+      .update({
+        company_id: newCompany.id,
+        company_roles: ['company', 'rh'],
+        is_primary_company_contact: true,
+        is_company_owner: true,
+        profile_completed: true,
+        onboarding_completed: true,
+      })
+      .eq('id', userId);
+
+    if (userError) throw userError;
+
+    return { success: true, companyId: newCompany.id };
+  } catch (error: unknown) {
+    console.error('Create company error:', error);
+    return { success: false, error: (error as Error).message };
+  }
 }

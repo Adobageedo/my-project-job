@@ -811,3 +811,92 @@ ALTER TABLE notification_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gdpr_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recruitcrm_sync_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS cover_letter_file_url TEXT;
+
+-- Add is_company_owner field to users table for owner/referent management
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_company_owner BOOLEAN DEFAULT false;
+
+-- Add linkedin_url to companies table
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR(500);
+
+-- =====================================================
+-- COMPANY INVITATIONS TABLE
+-- For inviting managers and team members with granular permissions
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS company_invitations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  invited_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  
+  -- Invitation details
+  email VARCHAR(255) NOT NULL,
+  role company_role NOT NULL DEFAULT 'manager',
+  
+  -- Permissions (granular access control)
+  permissions JSONB DEFAULT '{
+    "can_view_applications": true,
+    "can_edit_applications": false,
+    "can_send_emails": false,
+    "can_change_status": false,
+    "can_add_notes": true,
+    "can_create_offers": false,
+    "can_edit_offers": false,
+    "can_view_all_offers": true,
+    "kanban_stages_access": ["pending", "in_progress", "interview"]
+  }'::jsonb,
+  
+  -- Offer-specific access (NULL = all offers)
+  offer_ids UUID[] DEFAULT NULL,
+  
+  -- Status
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'expired', 'revoked')),
+  token VARCHAR(100) UNIQUE NOT NULL,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT (NOW() + INTERVAL '7 days'),
+  accepted_at TIMESTAMP WITH TIME ZONE,
+  accepted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  -- Unique constraint: one pending invitation per email per company
+  UNIQUE(company_id, email, status)
+);
+
+CREATE INDEX idx_company_invitations_company ON company_invitations(company_id);
+CREATE INDEX idx_company_invitations_email ON company_invitations(email);
+CREATE INDEX idx_company_invitations_token ON company_invitations(token);
+CREATE INDEX idx_company_invitations_status ON company_invitations(status);
+
+-- =====================================================
+-- USER PERMISSIONS TABLE
+-- Stores accepted permissions for company team members
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS user_permissions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  
+  -- Permissions (inherited from invitation, can be modified)
+  permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+  
+  -- Offer-specific access (NULL = all offers)
+  offer_ids UUID[] DEFAULT NULL,
+  
+  -- Granted by
+  granted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  UNIQUE(user_id, company_id)
+);
+
+CREATE INDEX idx_user_permissions_user ON user_permissions(user_id);
+CREATE INDEX idx_user_permissions_company ON user_permissions(company_id);
+
+ALTER TABLE company_invitations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_permissions ENABLE ROW LEVEL SECURITY;
